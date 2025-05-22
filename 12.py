@@ -1,0 +1,316 @@
+import face_recognition
+import cv2
+import os
+import numpy as np
+import tkinter as tk
+import tkinter.font as tkfont
+import tkinter.ttk as ttk
+from tkinter import filedialog, messagebox, scrolledtext
+from PIL import Image, ImageTk
+import shutil
+import logging
+import time
+
+# Настройка логирования в файл
+logging.basicConfig(
+    filename='access.log',
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+# Папка для хранения эталонных лиц
+KNOWN_FACES_DIR = 'known_faces'
+os.makedirs(KNOWN_FACES_DIR, exist_ok=True)
+
+
+# --- Функция загрузки эталонных лиц ---
+def load_known_faces():
+    known_encodings = []
+    known_names = []
+    for filename in os.listdir(KNOWN_FACES_DIR):
+        if filename.lower().endswith(('.jpg', '.png')):
+            path = os.path.join(KNOWN_FACES_DIR, filename)
+            image = face_recognition.load_image_file(path)
+            encs = face_recognition.face_encodings(image)
+            if encs:
+                known_encodings.append(encs[0])
+                known_names.append(os.path.splitext(filename)[0])
+    return known_encodings, known_names
+
+
+class FaceRecognitionApp:
+    def __init__(self):
+        self.known_face_encodings, self.known_face_names = load_known_faces()
+        self.process_frame = True
+        self.cap = None
+        self.start_time = None
+        self.fail_count = 0
+        self.auth_timeout = 5
+
+        self.root = tk.Tk()
+        self.root.title("Система распознавания лиц")
+        self.root.attributes('-fullscreen', True)
+        self.style = ttk.Style(self.root)
+        self._setup_style()
+
+        # Фреймы ролей
+        self.frame_role = ttk.Frame(self.root)
+        self.frame_employee = ttk.Frame(self.root)
+        self.frame_admin = ttk.Frame(self.root)
+        self.frame_security = ttk.Frame(self.root)
+
+        # Построение интерфейсов
+        self._build_role_frame()
+        self._build_employee_frame()
+        self._build_admin_frame()
+        self._build_security_frame()
+
+        self._show_frame(self.frame_role)
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.root.mainloop()
+
+    def _setup_style(self):
+        s = self.style
+        s.theme_use('clam')
+        s.configure('TButton', font=('Arial', 18), padding=10)
+        s.configure('Title.TLabel', font=('Arial', 24, 'bold'), foreground='white', background='#2c3e50')
+        s.configure('Status.TLabel', font=('Arial', 18), foreground='white', background='#2c3e50')
+        s.configure('Attempts.TLabel', font=('Arial', 16), foreground='#e74c3c', background='#34495e')
+        self.root.configure(background='#2c3e50')
+
+    def _build_role_frame(self):
+        f = self.frame_role
+        f.pack(expand=True, fill='both')
+        w, h = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        canvas_bg = tk.Canvas(f, width=w, height=h, highlightthickness=0)
+        for i in range(h):
+            r = int(44 + (52 - 44) * i / h)
+            g = int(62 + (152 - 62) * i / h)
+            b = int(80 + (219 - 80) * i / h)
+            canvas_bg.create_line(0, i, w, i, fill=f"#{r:02x}{g:02x}{b:02x}")
+        canvas_bg.pack(expand=True, fill='both')
+
+        tf = tkfont.Font(family='Helvetica', size=36, weight='bold')
+        canvas_bg.create_text(w / 2, h * 0.2, text='Выберите роль', font=tf, fill='white')
+        bf = tkfont.Font(family='Helvetica', size=24)
+
+        def btn(text, cmd, y, c1, c2):
+            c = tk.Canvas(f, width=300, height=60, highlightthickness=0)
+            for x in range(300):
+                cr = int(c1[0] + (c2[0] - c1[0]) * x / 300)
+                cg = int(c1[1] + (c2[1] - c1[1]) * x / 300)
+                cb = int(c1[2] + (c2[2] - c1[2]) * x / 300)
+                c.create_line(x, 0, x, 60, fill=f"#{cr:02x}{cg:02x}{cb:02x}")
+            c.create_text(150, 30, text=text, font=bf, fill='white')
+            c.bind('<Button-1>', lambda e: cmd())
+            c.place(relx=0.5, rely=y, anchor='center')
+
+        green1, green2 = (46, 204, 113), (39, 174, 96)
+        btn('Сотрудник', lambda: self._show_frame(self.frame_employee), 0.4, green1, green2)
+        btn('Администратор', lambda: (self._refresh_catalog(), self._show_frame(self.frame_admin)), 0.55, green1,
+            green2)
+        btn('Служба безопасности', lambda: self._show_frame(self.frame_security), 0.7, (52, 152, 219), (41, 128, 185))
+        btn('Завершить', self.on_closing, 0.85, (231, 76, 60), (192, 57, 43))
+
+    def _build_employee_frame(self):
+        f = self.frame_employee
+        self.emp_back_btn = ttk.Button(f, text="Назад", command=lambda: self._show_frame(self.frame_role))
+        self.emp_back_btn.pack(anchor='nw', padx=10, pady=10)
+        self.emp_exit_btn = ttk.Button(f, text="Завершить", command=self.on_closing)
+        self.emp_exit_btn.pack(anchor='ne', padx=10, pady=10)
+        self.emp_back_pack = self.emp_back_btn.pack_info()
+        self.emp_exit_pack = self.emp_exit_btn.pack_info()
+        self.attempts_label = ttk.Label(f, text="Неудачные попытки: 0", style='Attempts.TLabel')
+        self.attempts_label.pack(side='left', padx=20, pady=20)
+        self.video_label = tk.Label(f, bg='#34495e')
+        self.video_label.pack(side='left', expand=True, fill='both')
+        self.status_label = ttk.Label(f, text="Камера не запущена", style='Status.TLabel')
+        self.status_label.pack(pady=10)
+
+    def _build_admin_frame(self):
+        f = self.frame_admin
+        nav = ttk.Frame(f);
+        nav.pack(fill='x')
+        ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side='left', padx=10,
+                                                                                              pady=10)
+        ttk.Button(nav, text="Завершить", command=self.on_closing).pack(side='right', padx=10, pady=10)
+        ttk.Label(f, text="Управление сотрудниками", style='Title.TLabel').pack(pady=10)
+        frm = ttk.Frame(f);
+        frm.pack(pady=10)
+        ttk.Label(frm, text="ФИО:").grid(row=0, column=0, sticky='e')
+        self.name_entry = ttk.Entry(frm, width=30);
+        self.name_entry.grid(row=0, column=1)
+        ttk.Label(frm, text="Фото:").grid(row=1, column=0, sticky='e')
+        ttk.Button(frm, text="Выбрать файл", command=self._choose_file).grid(row=1, column=1)
+        self.selected_file = None
+        ttk.Button(f, text="Загрузить", command=self._upload_employee).pack(pady=10)
+        self.admin_status = ttk.Label(f, text="", style='Status.TLabel');
+        self.admin_status.pack(pady=5)
+        cat = tk.Frame(f, bg='#2c3e50');
+        cat.pack(expand=True, fill='both', padx=10, pady=10)
+        self.canvas = tk.Canvas(cat, bg='#2c3e50', highlightthickness=0)
+        self.scrollbar = ttk.Scrollbar(cat, orient='vertical', command=self.canvas.yview)
+        self.inner = ttk.Frame(self.canvas)
+        self.inner.bind('<Configure>', lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+        self.canvas.create_window((0, 0), window=self.inner, anchor='nw')
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        self.canvas.pack(side='left', fill='both', expand=True)
+        self.scrollbar.pack(side='right', fill='y')
+
+    def _build_security_frame(self):
+        f = self.frame_security
+        nav = ttk.Frame(f);
+        nav.pack(fill='x')
+        ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side='left', padx=10,
+                                                                                              pady=10)
+        ttk.Label(f, text="Служба безопасности - Логи доступа", style='Title.TLabel').pack(pady=10)
+        self.log_text = scrolledtext.ScrolledText(f, width=100, height=30, font=('Courier', 12))
+        self.log_text.pack(expand=True, fill='both', padx=20, pady=10)
+        ttk.Button(f, text="Обновить", command=self._load_logs).pack(pady=5)
+
+    def _load_logs(self):
+        try:
+            with open('access.log', 'r') as file:
+                data = file.read()
+        except FileNotFoundError:
+            data = 'Логов пока нет.'
+        self.log_text.delete('1.0', tk.END)
+        self.log_text.insert(tk.END, data)
+
+    def _show_frame(self, target):
+        for frm in (self.frame_role, self.frame_employee, self.frame_admin, self.frame_security):
+            frm.pack_forget()
+        target.pack(expand=True, fill='both')
+        self.root.update_idletasks()
+        if target == self.frame_employee:
+            self.emp_back_btn.pack(**self.emp_back_pack)
+            self.emp_exit_btn.pack(**self.emp_exit_pack)
+            self._start_employee_cam()
+        else:
+            self._stop_camera()
+        if target == self.frame_admin:
+            self._refresh_catalog();
+            return
+        if target == self.frame_security:
+            self._load_logs();
+            return
+
+    def _choose_file(self):
+        path = filedialog.askopenfilename(filetypes=[('Image Files', ('*.jpg', '*.png'))])
+        if path:
+            self.selected_file = path
+            self.admin_status.config(text=os.path.basename(path))
+
+    def _upload_employee(self):
+        name = self.name_entry.get().strip()
+        if not name or not self.selected_file:
+            messagebox.showwarning("Ошибка", "Введите ФИО и выберите файл")
+            return
+        ext = os.path.splitext(self.selected_file)[1]
+        dest = os.path.join(KNOWN_FACES_DIR, f"{name}{ext}")
+        shutil.copy(self.selected_file, dest)
+        self.known_face_encodings, self.known_face_names = load_known_faces()
+        self.admin_status.config(text=f"Сотрудник {name} добавлен")
+        self.name_entry.delete(0, 'end');
+        self.selected_file = None;
+        self._refresh_catalog()
+
+    def _refresh_catalog(self):
+        for w in self.inner.winfo_children(): w.destroy()
+        for fn in os.listdir(KNOWN_FACES_DIR):
+            if not fn.lower().endswith(('.jpg', '.png')): continue
+            name = os.path.splitext(fn)[0];
+            path = os.path.join(KNOWN_FACES_DIR, fn)
+            rec = ttk.Frame(self.inner, padding=5);
+            rec.pack(fill='x', pady=5)
+            img = Image.open(path);
+            img.thumbnail((64, 64));
+            ph = ImageTk.PhotoImage(img)
+            lbl = tk.Label(rec, image=ph);
+            lbl.image = ph;
+            lbl.pack(side='left', padx=5)
+            ttk.Label(rec, text=name, style='Status.TLabel').pack(side='left', padx=10)
+            ttk.Button(rec, text="Удалить", command=lambda n=name: self._delete_employee(n)).pack(side='right', padx=5)
+
+    def _delete_employee(self, name):
+        for e in ('.jpg', '.png'):
+            p = os.path.join(KNOWN_FACES_DIR, f"{name}{e}")
+            if os.path.exists(p): os.remove(p)
+        self.known_face_encodings, self.known_face_names = load_known_faces();
+        self._refresh_catalog()
+
+    def _start_employee_cam(self):
+        if self.cap is None:
+            self.cap = cv2.VideoCapture(0);
+            self.start_time = time.time();
+            self.fail_count = 0
+            self.attempts_label.config(text="Неудачные попытки: 0")
+            self.status_label.config(text="Камера запущена. Ожидание распознавания...")
+            self._update_frame()
+
+    def _stop_camera(self):
+        if self.cap: self.cap.release(); self.cap = None
+
+    def _show_access_granted(self):
+        self._stop_camera();
+        self.emp_back_btn.pack_forget();
+        self.emp_exit_btn.pack_forget()
+        overlay = ttk.Label(self.frame_employee, text="Вход разрешен", style='Title.TLabel');
+        overlay.place(relx=0.5, rely=0.5, anchor='center')
+
+        def reset(): overlay.destroy(); self._show_frame(self.frame_role)
+
+        self.root.after(5000, reset)
+
+    def _update_frame(self):
+        if self.cap is None: return
+        ret, frame = self.cap.read();
+        if not ret: self.root.after(30, self._update_frame); return
+        img = ImageTk.PhotoImage(image=Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
+        self.video_label.imgtk = img;
+        self.video_label.config(image=img)
+        if time.time() - self.start_time < 1: self.root.after(30, self._update_frame); return
+        if self.process_frame:
+            small = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25);
+            rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
+            locs = face_recognition.face_locations(rgb);
+            encs = face_recognition.face_encodings(rgb, locs)
+            recognized = False
+            for enc in encs:
+                matches = face_recognition.compare_faces(self.known_face_encodings, enc)
+                dists = face_recognition.face_distance(self.known_face_encodings, enc)
+                if len(dists) > 0 and matches[np.argmin(dists)]: recognized = True; name = self.known_face_names[
+                    np.argmin(dists)]; break
+            if recognized:
+                logging.info(f"Access granted for {name}")
+                self._show_access_granted();
+                return
+            if time.time() - self.start_time >= self.auth_timeout:
+                logging.warning(f"Failed authentication attempt {self.fail_count + 1}")
+                self.fail_count += 1;
+                self.attempts_label.config(text=f"Неудачные попытки: {self.fail_count}");
+                self.start_time = time.time()
+                if self.fail_count > 3:
+                    overlay_denied = ttk.Label(self.frame_employee, text="Похоже, вам сюда нельзя",
+                                               style='Title.TLabel');
+                    overlay_denied.place(relx=0.5, rely=0.5, anchor='center')
+                    self._stop_camera()
+
+                    def reset_denied():
+                        overlay_denied.destroy(); self._show_frame(self.frame_role)
+
+                    self.root.after(5000, reset_denied);
+                    return
+                else:
+                    self.status_label.config(text="Лицо не опознано. Попробуйте снова.")
+        self.process_frame = not self.process_frame;
+        self.root.after(30, self._update_frame)
+
+    def on_closing(self):
+        self._stop_camera();
+        self.root.destroy()
+
+
+if __name__ == '__main__':
+    app = FaceRecognitionApp()
