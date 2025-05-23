@@ -67,6 +67,7 @@ class FaceRecognitionApp:
         self._build_security_frame()
 
         self._show_frame(self.frame_role)
+        # Ensure graceful shutdown when the window is closed
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.root.mainloop()
 
@@ -160,19 +161,27 @@ class FaceRecognitionApp:
 
     def _build_security_frame(self):
         f = self.frame_security
-        nav = ttk.Frame(f);
-        nav.pack(fill='x')
-        ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side='left', padx=10,
-                                                                                              pady=10)
-        ttk.Label(f, text="Служба безопасности - Логи доступа", style='Title.TLabel').pack(pady=10)
-        self.log_text = scrolledtext.ScrolledText(f, width=100, height=30, font=('Courier', 12))
-        self.log_text.pack(expand=True, fill='both', padx=20, pady=10)
+        nav = ttk.Frame(f)
+        nav.pack(fill="x")
+        ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side="left", padx=10,
+                      pady=10)
+        self.sort_var = tk.StringVar(value="По убыванию")
+        ttk.Label(nav, text="Сортировка:").pack(side="left", padx=5)
+        ttk.OptionMenu(nav, self.sort_var, "По убыванию", "По убыванию", "По возрастанию", command=lambda _=None: self._load_logs()).pack(side="left")
+        ttk.Label(f, text="Служба безопасности - Логи доступа", style="Title.TLabel").pack(pady=10)
+        self.log_text = scrolledtext.ScrolledText(f, width=100, height=30, font=("Courier", 12))
+        self.log_text.pack(expand=True, fill="both", padx=20, pady=10)
         ttk.Button(f, text="Обновить", command=self._load_logs).pack(pady=5)
 
     def _load_logs(self):
         try:
             with open('access.log', 'r') as file:
-                data = file.read()
+                lines = file.readlines()
+                if self.sort_var.get() == "По возрастанию":
+                    lines.sort()
+                else:
+                    lines.sort(reverse=True)
+                data = "".join(lines)
         except FileNotFoundError:
             data = 'Логов пока нет.'
         self.log_text.delete('1.0', tk.END)
@@ -307,8 +316,14 @@ class FaceRecognitionApp:
         self.process_frame = not self.process_frame;
         self.root.after(30, self._update_frame)
 
-    def on_closing(self):
-        self._stop_camera();
+    def on_closing(self, event=None):
+        """Handle application close event."""
+        self._stop_camera()
+        # Quit main loop in case it's still running and then destroy the window
+        try:
+            self.root.quit()
+        except Exception:
+            pass
         self.root.destroy()
 
 
