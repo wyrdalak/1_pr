@@ -159,7 +159,7 @@ class FaceRecognitionApp:
         s.configure('TButton', font=('Arial', 18), padding=10)
         s.configure('Title.TLabel', font=('Arial', 24, 'bold'), foreground='white', background='#2c3e50')
         s.configure('Status.TLabel', font=('Arial', 18), foreground='white', background='#2c3e50')
-        s.configure('Attempts.TLabel', font=('Arial', 16), foreground='#e74c3c', background='#34495e')
+        s.configure('Attempts.TLabel', font=('Arial', 30), foreground='#e74c3c', background='#34495e')
         s.configure('Success.TLabel', font=('Arial', 32, 'bold'), foreground='white', background='#27ae60')
         s.configure('Denied.TLabel', font=('Arial', 32, 'bold'), foreground='white', background='#c0392b')
         s.configure('Cam.TLabelframe', background='#2c3e50', foreground='white')
@@ -241,7 +241,7 @@ class FaceRecognitionApp:
         self.emp_back_btn.pack(side='left', padx=10, pady=10)
 
         self.attempts_label = ttk.Label(nav, text="Неудачные попытки: 0", style='Attempts.TLabel')
-        self.attempts_label.pack(side='left', padx=20, pady=10)
+        self.attempts_label.pack(padx=10, pady=10)
 
 
         self.emp_exit_btn = self._create_gradient_button(
