@@ -239,6 +239,11 @@ class FaceRecognitionApp:
         self.emp_back_btn = self._create_gradient_button(
             nav, "Назад", lambda: self._show_frame(self.frame_role), width=170, height=50)
         self.emp_back_btn.pack(side='left', padx=10, pady=10)
+
+        self.attempts_label = ttk.Label(nav, text="Неудачные попытки: 0", style='Attempts.TLabel')
+        self.attempts_label.pack(side='left', padx=20, pady=10)
+
+
         self.emp_exit_btn = self._create_gradient_button(
             nav, "Завершить", self.on_closing, width=170, height=50)
         self.emp_exit_btn.pack(side='right', padx=10, pady=10)
@@ -252,10 +257,6 @@ class FaceRecognitionApp:
         self.cam_box = ttk.LabelFrame(f, text="Камера", style='Cam.TLabelframe')
         self.video_label = tk.Label(self.cam_box, bg='#34495e', bd=2, relief='sunken')
         self.video_label.pack(expand=True, fill='both')
-        self.attempts_label = ttk.Label(self.cam_box, text="Неудачные попытки: 0", style='Attempts.TLabel')
-        self.attempts_label.pack(pady=5)
-        self.total_fail_label = ttk.Label(self.cam_box, text="Всего неудачных идентификаций: 0", style='Attempts.TLabel')
-        self.total_fail_label.pack(pady=5)
         self.status_label = ttk.Label(f, text="Камера не запущена", style='Status.TLabel')
 
     def _build_admin_choice_frame(self):
@@ -584,7 +585,6 @@ class FaceRecognitionApp:
             self.start_time = time.time()
             self.fail_count = 0
             self.attempts_label.config(text="Неудачные попытки: 0")
-            self.total_fail_label.config(text=f"Всего неудачных идентификаций: {self.total_failed_identifications}")
             self.status_label.config(text="Камера запущена. Ожидание распознавания...")
             self._update_frame()
 
@@ -644,7 +644,6 @@ class FaceRecognitionApp:
                 self.fail_count += 1
                 self.total_failed_identifications += 1
                 self.attempts_label.config(text=f"Неудачные попытки: {self.fail_count}")
-                self.total_fail_label.config(text=f"Всего неудачных идентификаций: {self.total_failed_identifications}")
                 self.start_time = time.time()
                 if self.fail_count > 3:
                     self._show_access_denied()
