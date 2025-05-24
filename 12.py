@@ -209,16 +209,14 @@ class FaceRecognitionApp:
         self.emp_exit_btn.pack(side='right', padx=10, pady=10)
         self.emp_back_pack = self.emp_back_btn.pack_info()
         self.emp_exit_pack = self.emp_exit_btn.pack_info()
+        self.start_button = ttk.Button(f, text="Начать идентификацию", command=self._on_start_identification)
+        self.start_button.pack(expand=True, fill='both')
 
-        cam_box = ttk.LabelFrame(f, text="Камера", style='Cam.TLabelframe')
-        cam_box.pack(expand=True, fill='both', padx=20, pady=10)
-        self.video_label = tk.Label(cam_box, bg='#34495e', bd=2, relief='sunken')
+        self.cam_box = ttk.LabelFrame(f, text="Камера", style='Cam.TLabelframe')
+        self.video_label = tk.Label(self.cam_box, bg='#34495e', bd=2, relief='sunken')
         self.video_label.pack(expand=True, fill='both')
-
         self.attempts_label = ttk.Label(f, text="Неудачные попытки: 0", style='Attempts.TLabel')
-        self.attempts_label.pack(pady=5)
         self.status_label = ttk.Label(f, text="Камера не запущена", style='Status.TLabel')
-        self.status_label.pack(pady=5)
 
     def _build_admin_choice_frame(self):
         f = self.frame_admin_choice
@@ -310,6 +308,24 @@ class FaceRecognitionApp:
         if options:
             self.dept_var.set(options[0])
 
+    def _reset_employee_screen(self):
+        """Подготовить экран сотрудника для начала идентификации."""
+        self._stop_camera()
+        self.cam_box.pack_forget()
+        self.attempts_label.pack_forget()
+        self.status_label.pack_forget()
+        if not self.start_button.winfo_ismapped():
+            self.start_button.pack(expand=True, fill='both')
+        self.attempts_label.config(text="Неудачные попытки: 0")
+        self.status_label.config(text="Камера не запущена")
+
+    def _on_start_identification(self):
+        self.start_button.pack_forget()
+        self.attempts_label.pack(pady=5)
+        self.cam_box.pack(expand=True, fill='both', padx=20, pady=10)
+        self.status_label.pack(pady=5)
+        self._start_employee_cam()
+
     def _build_security_frame(self):
         f = self.frame_security
         nav = ttk.Frame(f)
@@ -351,7 +367,7 @@ class FaceRecognitionApp:
         if target == self.frame_employee:
             self.emp_back_btn.pack(**self.emp_back_pack)
             self.emp_exit_btn.pack(**self.emp_exit_pack)
-            self._start_employee_cam()
+            self._reset_employee_screen()
         else:
             self._stop_camera()
         if target == self.frame_admin:
