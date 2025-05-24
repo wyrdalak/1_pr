@@ -240,8 +240,8 @@ class FaceRecognitionApp:
             nav, "Назад", lambda: self._show_frame(self.frame_role), width=170, height=50)
         self.emp_back_btn.pack(side='left', padx=10, pady=10)
 
-        self.attempts_label = ttk.Label(nav, text="Неудачные попытки: 0", style='Attempts.TLabel')
-        self.attempts_label.pack(padx=10, pady=10)
+        self.attempts_label = ttk.Label(f, text="Неудачные попытки: 0", style='Attempts.TLabel')
+        self.attempts_label.pack(pady=10)
 
 
         self.emp_exit_btn = self._create_gradient_button(
