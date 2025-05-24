@@ -52,10 +52,10 @@ DEPARTMENT_OPTIONS = {
 # --- Функция загрузки эталонных лиц ---
 def load_known_faces():
     known_encodings, known_names = [], []
+    mapping = {}
     resp = requests.get(f"{API_URL}/employees")
     for emp in resp.json():
         # тянем фото по URL
-        # emp['photo_url'] == "/api/employees/photo/<filename>"
         photo_url = API_HOST + emp['photo_url']
         r = requests.get(photo_url, timeout=5)
         r.raise_for_status()
@@ -65,7 +65,9 @@ def load_known_faces():
         if encs:
             known_encodings.append(encs[0])
             known_names.append(emp['name'])
-    return known_encodings, known_names
+            mapping[emp['name']] = emp['dept']
+    save_department_mapping(mapping)
+    return known_encodings, known_names, mapping
 
 def load_department_mapping():
     mapping = {}
@@ -105,8 +107,7 @@ def save_environments(envs):
 
 class FaceRecognitionApp:
     def __init__(self):
-        self.known_face_encodings, self.known_face_names = load_known_faces()
-        self.employee_depts = load_department_mapping()
+        self.known_face_encodings, self.known_face_names, self.employee_depts = load_known_faces()
         self.environments = load_environments()
         self.env_selected_image = ''
         self.process_frame = True
@@ -414,8 +415,8 @@ class FaceRecognitionApp:
         if resp.status_code == 201:
             # Успешно добавили на сервер
             self.admin_status.config(text=f"Сотрудник {name} добавлен на сервер")
-            # Обновляем локальные списки лиц
-            self.known_face_encodings, self.known_face_names = load_known_faces()
+            # Обновляем локальные списки лиц и отображение
+            self.known_face_encodings, self.known_face_names, self.employee_depts = load_known_faces()
             self._refresh_catalog()
             # Сбрасываем поля формы
             self.name_entry.delete(0, 'end')
@@ -450,34 +451,40 @@ class FaceRecognitionApp:
     def _refresh_catalog(self):
         for w in self.inner.winfo_children():
             w.destroy()
-        for root_dir, _dirs, files in os.walk(KNOWN_FACES_DIR):
-            for fn in files:
-                if not fn.lower().endswith((".jpg", ".png")):
-                    continue
-                name = os.path.splitext(fn)[0]
-                path = os.path.join(root_dir, fn)
-                rec = ttk.Frame(self.inner, padding=5)
-                rec.pack(fill='x', pady=5)
-                img = Image.open(path)
+        try:
+            resp = requests.get(f"{API_URL}/employees", timeout=5)
+            resp.raise_for_status()
+            employees = resp.json()
+        except Exception as e:
+            ttk.Label(self.inner, text=f"Ошибка загрузки данных: {e}").pack()
+            return
+        for emp in employees:
+            rec = ttk.Frame(self.inner, padding=5)
+            rec.pack(fill='x', pady=5)
+            try:
+                img_resp = requests.get(API_HOST + emp['photo_url'], timeout=5)
+                img_resp.raise_for_status()
+                img = Image.open(io.BytesIO(img_resp.content))
                 img.thumbnail((64, 64))
                 ph = ImageTk.PhotoImage(img)
                 lbl = tk.Label(rec, image=ph)
                 lbl.image = ph
                 lbl.pack(side='left', padx=5)
-                dept = self.employee_depts.get(name, os.path.basename(root_dir))
-                ttk.Label(rec, text=f"{name} ({dept})", style='Status.TLabel').pack(side='left', padx=10)
-                ttk.Button(rec, text="Удалить", command=lambda n=name: self._delete_employee(n)).pack(side='right', padx=5)
+            except Exception:
+                ttk.Label(rec, text='[Нет изображения]').pack(side='left', padx=5)
+            ttk.Label(rec, text=f"{emp['name']} ({emp['dept']})", style='Status.TLabel').pack(side='left', padx=10)
+            ttk.Button(rec, text='Удалить', command=lambda n=emp['name']: self._delete_employee(n)).pack(side='right', padx=5)
 
     def _delete_employee(self, name):
-        for root_dir, _dirs, files in os.walk(KNOWN_FACES_DIR):
-            for e in ('.jpg', '.png'):
-                file = f"{name}{e}"
-                if file in files:
-                    os.remove(os.path.join(root_dir, file))
+        try:
+            requests.delete(f"{API_URL}/employees/{name}", timeout=5)
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось удалить: {e}")
+            return
         if name in self.employee_depts:
             del self.employee_depts[name]
             save_department_mapping(self.employee_depts)
-        self.known_face_encodings, self.known_face_names = load_known_faces()
+        self.known_face_encodings, self.known_face_names, self.employee_depts = load_known_faces()
         self._refresh_catalog()
 
     def _start_employee_cam(self):
