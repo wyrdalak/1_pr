@@ -165,6 +165,20 @@ class FaceRecognitionApp:
         s.configure('Cam.TLabelframe.Label', font=('Arial', 18, 'bold'), foreground='white', background='#2c3e50')
         self.root.configure(background='#2c3e50')
 
+    def _apply_gradient_background(self, frame):
+        """Draw the same blue gradient used on the role screen."""
+        w, h = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        canvas = tk.Canvas(frame, width=w, height=h, highlightthickness=0)
+        c1, c2 = (44, 62, 80), (52, 152, 219)
+        for i in range(h):
+            r = int(c1[0] + (c2[0] - c1[0]) * i / h)
+            g = int(c1[1] + (c2[1] - c1[1]) * i / h)
+            b = int(c1[2] + (c2[2] - c1[2]) * i / h)
+            canvas.create_line(0, i, w, i, fill=f"#{r:02x}{g:02x}{b:02x}")
+        canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
+        canvas.tk.call('lower', canvas._w)
+        return canvas
+
     def _build_role_frame(self):
         f = self.frame_role
         f.pack(expand=True, fill='both')
@@ -201,6 +215,7 @@ class FaceRecognitionApp:
 
     def _build_employee_frame(self):
         f = self.frame_employee
+        self._apply_gradient_background(f)
         nav = ttk.Frame(f)
         nav.pack(fill='x')
         self.emp_back_btn = ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role))
@@ -209,19 +224,18 @@ class FaceRecognitionApp:
         self.emp_exit_btn.pack(side='right', padx=10, pady=10)
         self.emp_back_pack = self.emp_back_btn.pack_info()
         self.emp_exit_pack = self.emp_exit_btn.pack_info()
+        self.start_button = ttk.Button(f, text="Начать идентификацию", command=self._on_start_identification)
+        self.start_button.pack(expand=True, fill='both')
 
-        cam_box = ttk.LabelFrame(f, text="Камера", style='Cam.TLabelframe')
-        cam_box.pack(expand=True, fill='both', padx=20, pady=10)
-        self.video_label = tk.Label(cam_box, bg='#34495e', bd=2, relief='sunken')
+        self.cam_box = ttk.LabelFrame(f, text="Камера", style='Cam.TLabelframe')
+        self.video_label = tk.Label(self.cam_box, bg='#34495e', bd=2, relief='sunken')
         self.video_label.pack(expand=True, fill='both')
-
         self.attempts_label = ttk.Label(f, text="Неудачные попытки: 0", style='Attempts.TLabel')
-        self.attempts_label.pack(pady=5)
         self.status_label = ttk.Label(f, text="Камера не запущена", style='Status.TLabel')
-        self.status_label.pack(pady=5)
 
     def _build_admin_choice_frame(self):
         f = self.frame_admin_choice
+        self._apply_gradient_background(f)
         nav = ttk.Frame(f)
         nav.pack(fill='x')
         ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side='left', padx=10, pady=10)
@@ -232,6 +246,7 @@ class FaceRecognitionApp:
 
     def _build_admin_frame(self):
         f = self.frame_admin
+        self._apply_gradient_background(f)
         nav = ttk.Frame(f);
         nav.pack(fill='x')
         ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_admin_choice)).pack(side='left', padx=10,
@@ -269,6 +284,7 @@ class FaceRecognitionApp:
 
     def _build_admin_env_frame(self):
         f = self.frame_admin_env
+        self._apply_gradient_background(f)
         nav = ttk.Frame(f)
         nav.pack(fill='x')
         ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_admin_choice)).pack(side='left', padx=10, pady=10)
@@ -310,8 +326,27 @@ class FaceRecognitionApp:
         if options:
             self.dept_var.set(options[0])
 
+    def _reset_employee_screen(self):
+        """Подготовить экран сотрудника для начала идентификации."""
+        self._stop_camera()
+        self.cam_box.pack_forget()
+        self.attempts_label.pack_forget()
+        self.status_label.pack_forget()
+        if not self.start_button.winfo_ismapped():
+            self.start_button.pack(expand=True, fill='both')
+        self.attempts_label.config(text="Неудачные попытки: 0")
+        self.status_label.config(text="Камера не запущена")
+
+    def _on_start_identification(self):
+        self.start_button.pack_forget()
+        self.cam_box.pack(expand=True, fill='both', padx=20, pady=10)
+        self.attempts_label.pack(pady=5)
+        self.status_label.pack(pady=5)
+        self._start_employee_cam()
+
     def _build_security_frame(self):
         f = self.frame_security
+        self._apply_gradient_background(f)
         nav = ttk.Frame(f)
         nav.pack(fill="x")
         ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side="left", padx=10,
@@ -351,7 +386,7 @@ class FaceRecognitionApp:
         if target == self.frame_employee:
             self.emp_back_btn.pack(**self.emp_back_pack)
             self.emp_exit_btn.pack(**self.emp_exit_pack)
-            self._start_employee_cam()
+            self._reset_employee_screen()
         else:
             self._stop_camera()
         if target == self.frame_admin:
