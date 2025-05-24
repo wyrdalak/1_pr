@@ -11,6 +11,7 @@ import shutil
 import logging
 import time
 import requests, io, datetime
+from typing import Tuple
 
 # Адрес API вашего сервера
 API_HOST = 'http://127.0.0.1:5001'     # или 'http://<IP_СЕРВЕРА>:5001'
@@ -59,7 +60,8 @@ def load_known_faces():
         photo_url = API_HOST + emp['photo_url']
         r = requests.get(photo_url, timeout=5)
         r.raise_for_status()
-        img = face_recognition.load_image_file(io.BytesIO(r.content))
+        img_pil = Image.open(io.BytesIO(r.content)).convert('RGB')
+        img = np.array(img_pil)
         encs = face_recognition.face_encodings(img)
         if encs:
             known_encodings.append(encs[0])
@@ -154,6 +156,31 @@ class FaceRecognitionApp:
         s.configure('Attempts.TLabel', font=('Arial', 16), foreground='#e74c3c', background='#34495e')
         self.root.configure(background='#2c3e50')
 
+    def _gradient_button(self, parent: tk.Widget, text: str, command, c1: Tuple[int, int, int], c2: Tuple[int, int, int]):
+        width, height = 180, 50
+        cv = tk.Canvas(parent, width=width, height=height, highlightthickness=0)
+        for x in range(width):
+            r = int(c1[0] + (c2[0] - c1[0]) * x / width)
+            g = int(c1[1] + (c2[1] - c1[1]) * x / width)
+            b = int(c1[2] + (c2[2] - c1[2]) * x / width)
+            cv.create_line(x, 0, x, height, fill=f"#{r:02x}{g:02x}{b:02x}")
+        cv.create_text(width/2, height/2, text=text, fill='white', font=('Arial', 16, 'bold'))
+        cv.bind('<Button-1>', lambda e: command())
+        return cv
+
+    def _add_gradient_bg(self, frame: tk.Frame):
+        w = self.root.winfo_screenwidth()
+        h = self.root.winfo_screenheight()
+        cv = tk.Canvas(frame, width=w, height=h, highlightthickness=0)
+        for i in range(h):
+            r = int(44 + (52 - 44) * i / h)
+            g = int(62 + (152 - 62) * i / h)
+            b = int(80 + (219 - 80) * i / h)
+            cv.create_line(0, i, w, i, fill=f"#{r:02x}{g:02x}{b:02x}")
+        cv.place(x=0, y=0, relwidth=1, relheight=1)
+        frame.tk.call('lower', cv._w)
+        return cv
+
     def _build_role_frame(self):
         f = self.frame_role
         f.pack(expand=True, fill='both')
@@ -190,12 +217,11 @@ class FaceRecognitionApp:
 
     def _build_employee_frame(self):
         f = self.frame_employee
-        self.emp_back_btn = ttk.Button(f, text="Назад", command=lambda: self._show_frame(self.frame_role))
-        self.emp_back_btn.pack(anchor='nw', padx=10, pady=10)
-        self.emp_exit_btn = ttk.Button(f, text="Завершить", command=self.on_closing)
-        self.emp_exit_btn.pack(anchor='ne', padx=10, pady=10)
-        self.emp_back_pack = self.emp_back_btn.pack_info()
-        self.emp_exit_pack = self.emp_exit_btn.pack_info()
+        self._add_gradient_bg(f)
+        self.emp_back_btn = self._gradient_button(f, "Назад", lambda: self._show_frame(self.frame_role), (46,204,113), (39,174,96))
+        self.emp_back_btn.place(x=10, y=10)
+        self.emp_exit_btn = self._gradient_button(f, "Завершить", self.on_closing, (231,76,60), (192,57,43))
+        self.emp_exit_btn.place(relx=1.0, x=-190, y=10)
         self.attempts_label = ttk.Label(f, text="Неудачные попытки: 0", style='Attempts.TLabel')
         self.attempts_label.pack(side='left', padx=20, pady=20)
         self.video_label = tk.Label(f, bg='#34495e')
@@ -332,8 +358,6 @@ class FaceRecognitionApp:
         target.pack(expand=True, fill='both')
         self.root.update_idletasks()
         if target == self.frame_employee:
-            self.emp_back_btn.pack(**self.emp_back_pack)
-            self.emp_exit_btn.pack(**self.emp_exit_pack)
             self._start_employee_cam()
         else:
             self._stop_camera()
@@ -493,8 +517,8 @@ class FaceRecognitionApp:
 
     def _show_access_granted(self):
         self._stop_camera();
-        self.emp_back_btn.pack_forget();
-        self.emp_exit_btn.pack_forget()
+        self.emp_back_btn.place_forget();
+        self.emp_exit_btn.place_forget()
         overlay = ttk.Label(self.frame_employee, text="Вход разрешен", style='Title.TLabel');
         overlay.place(relx=0.5, rely=0.5, anchor='center')
 
