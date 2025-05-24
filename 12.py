@@ -22,6 +22,7 @@ logging.basicConfig(
 # Папка для хранения эталонных лиц
 KNOWN_FACES_DIR = 'known_faces'
 DEPARTMENTS_FILE = 'departments.txt'
+ENVIRONMENT_FILE = 'environment.txt'
 os.makedirs(KNOWN_FACES_DIR, exist_ok=True)
 
 DEPARTMENT_OPTIONS = {
@@ -77,10 +78,22 @@ def save_department_mapping(mapping):
             f.write(f"{name};{dept}\n")
 
 
+def load_environment():
+    if os.path.exists(ENVIRONMENT_FILE):
+        with open(ENVIRONMENT_FILE, "r", encoding="utf-8") as f:
+            parts = f.read().split(";")
+            if len(parts) >= 3:
+                return {"name": parts[0], "location": parts[1], "image": parts[2]}
+    return {"name": "", "location": "", "image": ""}
+
+
+
+
 class FaceRecognitionApp:
     def __init__(self):
         self.known_face_encodings, self.known_face_names = load_known_faces()
         self.employee_depts = load_department_mapping()
+        self.environment = load_environment()
         self.process_frame = True
         self.cap = None
         self.start_time = None
@@ -96,7 +109,9 @@ class FaceRecognitionApp:
         # Фреймы ролей
         self.frame_role = ttk.Frame(self.root)
         self.frame_employee = ttk.Frame(self.root)
+        self.frame_admin_choice = ttk.Frame(self.root)
         self.frame_admin = ttk.Frame(self.root)
+        self.frame_admin_env = ttk.Frame(self.root)
         self.frame_security = ttk.Frame(self.root)
 
         self.departments_map = DEPARTMENT_OPTIONS
@@ -107,7 +122,9 @@ class FaceRecognitionApp:
         # Построение интерфейсов
         self._build_role_frame()
         self._build_employee_frame()
+        self._build_admin_choice_frame()
         self._build_admin_frame()
+        self._build_admin_env_frame()
         self._build_security_frame()
 
         self._show_frame(self.frame_role)
@@ -152,7 +169,7 @@ class FaceRecognitionApp:
 
         green1, green2 = (46, 204, 113), (39, 174, 96)
         btn('Сотрудник', lambda: self._show_frame(self.frame_employee), 0.4, green1, green2)
-        btn('Администратор', lambda: (self._refresh_catalog(), self._show_frame(self.frame_admin)), 0.55, green1,
+        btn('Администратор', lambda: self._show_frame(self.frame_admin_choice), 0.55, green1,
             green2)
         btn('Служба безопасности', lambda: self._show_frame(self.frame_security), 0.7, (52, 152, 219), (41, 128, 185))
         btn('Завершить', self.on_closing, 0.85, (231, 76, 60), (192, 57, 43))
@@ -172,12 +189,22 @@ class FaceRecognitionApp:
         self.status_label = ttk.Label(f, text="Камера не запущена", style='Status.TLabel')
         self.status_label.pack(pady=10)
 
+    def _build_admin_choice_frame(self):
+        f = self.frame_admin_choice
+        nav = ttk.Frame(f)
+        nav.pack(fill='x')
+        ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side='left', padx=10, pady=10)
+        ttk.Button(nav, text="Завершить", command=self.on_closing).pack(side='right', padx=10, pady=10)
+        ttk.Label(f, text="Панель администратора", style='Title.TLabel').pack(pady=20)
+        ttk.Button(f, text="Зарегистрировать сотрудника", command=lambda: self._show_frame(self.frame_admin)).pack(pady=10)
+        ttk.Button(f, text="Настроить окружение", command=lambda: self._show_frame(self.frame_admin_env)).pack(pady=10)
+
     def _build_admin_frame(self):
         f = self.frame_admin
         nav = ttk.Frame(f);
         nav.pack(fill='x')
-        ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side='left', padx=10,
-                                                                                              pady=10)
+        ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_admin_choice)).pack(side='left', padx=10,
+                      pady=10)
         ttk.Button(nav, text="Завершить", command=self.on_closing).pack(side='right', padx=10, pady=10)
         ttk.Label(f, text="Управление сотрудниками", style='Title.TLabel').pack(pady=10)
         frm = ttk.Frame(f);
@@ -208,6 +235,29 @@ class FaceRecognitionApp:
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
         self.canvas.pack(side='left', fill='both', expand=True)
         self.scrollbar.pack(side='right', fill='y')
+
+    def _build_admin_env_frame(self):
+        f = self.frame_admin_env
+        nav = ttk.Frame(f)
+        nav.pack(fill='x')
+        ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_admin_choice)).pack(side='left', padx=10, pady=10)
+        ttk.Button(nav, text="Завершить", command=self.on_closing).pack(side='right', padx=10, pady=10)
+        ttk.Label(f, text="Настройка окружения", style='Title.TLabel').pack(pady=10)
+        frm = ttk.Frame(f)
+        frm.pack(pady=10)
+        ttk.Label(frm, text="Название помещения:").grid(row=0, column=0, sticky='e')
+        self.env_name_entry = ttk.Entry(frm, width=30)
+        self.env_name_entry.grid(row=0, column=1, sticky='w')
+        ttk.Label(frm, text="Местоположение:").grid(row=1, column=0, sticky='e')
+        self.env_loc_entry = ttk.Entry(frm, width=30)
+        self.env_loc_entry.grid(row=1, column=1, sticky='w')
+        ttk.Label(frm, text="Изображение:").grid(row=2, column=0, sticky='e')
+        ttk.Button(frm, text="Выбрать файл", command=self._choose_env_image).grid(row=2, column=1, sticky='w')
+        self.env_image_label = ttk.Label(frm, text="")
+        self.env_image_label.grid(row=3, column=0, columnspan=2)
+        ttk.Button(f, text="Сохранить", command=self._save_environment).pack(pady=10)
+        self.env_status = ttk.Label(f, text="", style='Status.TLabel')
+        self.env_status.pack()
 
     def _update_dept_menu(self, *_):
         menu = self.dept_menu['menu']
@@ -247,7 +297,8 @@ class FaceRecognitionApp:
         self.log_text.insert(tk.END, data)
 
     def _show_frame(self, target):
-        for frm in (self.frame_role, self.frame_employee, self.frame_admin, self.frame_security):
+        for frm in (self.frame_role, self.frame_employee, self.frame_admin_choice, self.frame_admin,
+                     self.frame_admin_env, self.frame_security):
             frm.pack_forget()
         target.pack(expand=True, fill='both')
         self.root.update_idletasks()
@@ -258,7 +309,14 @@ class FaceRecognitionApp:
         else:
             self._stop_camera()
         if target == self.frame_admin:
-            self._refresh_catalog();
+            self._refresh_catalog()
+            return
+        if target == self.frame_admin_env:
+            self.env_name_entry.delete(0, 'end')
+            self.env_name_entry.insert(0, self.environment.get('name', ''))
+            self.env_loc_entry.delete(0, 'end')
+            self.env_loc_entry.insert(0, self.environment.get('location', ''))
+            self.env_image_label.config(text=os.path.basename(self.environment.get('image', '')))
             return
         if target == self.frame_security:
             self._load_logs();
@@ -269,6 +327,24 @@ class FaceRecognitionApp:
         if path:
             self.selected_file = path
             self.admin_status.config(text=os.path.basename(path))
+
+    def _choose_env_image(self):
+        path = filedialog.askopenfilename(filetypes=[('Image Files', ('*.jpg', '*.png'))])
+        if path:
+            self.environment['image'] = path
+            self.env_image_label.config(text=os.path.basename(path))
+
+    def _save_environment(self):
+        name = self.env_name_entry.get().strip()
+        loc = self.env_loc_entry.get().strip()
+        img = self.environment.get('image', '')
+        if not name or not loc or not img:
+            messagebox.showwarning("Ошибка", "Заполните все поля и выберите изображение")
+            return
+        self.environment = {'name': name, 'location': loc, 'image': img}
+        with open(ENVIRONMENT_FILE, 'w', encoding='utf-8') as f:
+            f.write(f"{name};{loc};{img}")
+        self.env_status.config(text="Окружение сохранено")
 
     def _upload_employee(self):
         name = self.name_entry.get().strip()
