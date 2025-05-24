@@ -59,7 +59,8 @@ def load_known_faces():
         photo_url = API_HOST + emp['photo_url']
         r = requests.get(photo_url, timeout=5)
         r.raise_for_status()
-        img = face_recognition.load_image_file(io.BytesIO(r.content))
+        img_pil = Image.open(io.BytesIO(r.content)).convert('RGB')
+        img = np.array(img_pil)
         encs = face_recognition.face_encodings(img)
         if encs:
             known_encodings.append(encs[0])
@@ -154,6 +155,29 @@ class FaceRecognitionApp:
         s.configure('Attempts.TLabel', font=('Arial', 16), foreground='#e74c3c', background='#34495e')
         self.root.configure(background='#2c3e50')
 
+    def _gradient_button(self, parent, text, command, c1, c2, w=160, h=50):
+        btn = tk.Canvas(parent, width=w, height=h, highlightthickness=0)
+        for x in range(w):
+            r = int(c1[0] + (c2[0] - c1[0]) * x / w)
+            g = int(c1[1] + (c2[1] - c1[1]) * x / w)
+            b = int(c1[2] + (c2[2] - c1[2]) * x / w)
+            btn.create_line(x, 0, x, h, fill=f"#{r:02x}{g:02x}{b:02x}")
+        btn.create_text(w/2, h/2, text=text, fill='white', font=('Helvetica', 16))
+        btn.bind('<Button-1>', lambda e: command())
+        return btn
+
+    def _add_gradient_bg(self, frame):
+        w, h = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        cv = tk.Canvas(frame, width=w, height=h, highlightthickness=0)
+        for i in range(h):
+            r = int(44 + (52 - 44) * i / h)
+            g = int(62 + (152 - 62) * i / h)
+            b = int(80 + (219 - 80) * i / h)
+            cv.create_line(0, i, w, i, fill=f"#{r:02x}{g:02x}{b:02x}")
+        cv.place(x=0, y=0, relwidth=1, relheight=1)
+        cv.lower()
+        return cv
+
     def _build_role_frame(self):
         f = self.frame_role
         f.pack(expand=True, fill='both')
@@ -190,16 +214,26 @@ class FaceRecognitionApp:
 
     def _build_employee_frame(self):
         f = self.frame_employee
-        self.emp_back_btn = ttk.Button(f, text="Назад", command=lambda: self._show_frame(self.frame_role))
-        self.emp_back_btn.pack(anchor='nw', padx=10, pady=10)
-        self.emp_exit_btn = ttk.Button(f, text="Завершить", command=self.on_closing)
-        self.emp_exit_btn.pack(anchor='ne', padx=10, pady=10)
+        bg = self._add_gradient_bg(f)
+
+        nav = tk.Frame(f, bg='#2c3e50')
+        nav.pack(fill='x')
+        green1, green2 = (46, 204, 113), (39, 174, 96)
+        red1, red2 = (231, 76, 60), (192, 57, 43)
+        self.emp_back_btn = self._gradient_button(nav, "Назад", lambda: self._show_frame(self.frame_role), green1, green2)
+        self.emp_back_btn.pack(side='left', padx=10, pady=10)
+        self.emp_exit_btn = self._gradient_button(nav, "Завершить", self.on_closing, red1, red2)
+        self.emp_exit_btn.pack(side='right', padx=10, pady=10)
         self.emp_back_pack = self.emp_back_btn.pack_info()
         self.emp_exit_pack = self.emp_exit_btn.pack_info()
+
+        ttk.Label(f, text="Предоставление доступа", style='Title.TLabel').pack(pady=(10, 0))
+        cam_frame = ttk.Frame(f, padding=5)
+        cam_frame.pack(expand=True, fill='both', padx=20, pady=10)
+        self.video_label = tk.Label(cam_frame, bg='#34495e')
+        self.video_label.pack(expand=True, fill='both')
         self.attempts_label = ttk.Label(f, text="Неудачные попытки: 0", style='Attempts.TLabel')
-        self.attempts_label.pack(side='left', padx=20, pady=20)
-        self.video_label = tk.Label(f, bg='#34495e')
-        self.video_label.pack(side='left', expand=True, fill='both')
+        self.attempts_label.pack(pady=10)
         self.status_label = ttk.Label(f, text="Камера не запущена", style='Status.TLabel')
         self.status_label.pack(pady=10)
 
