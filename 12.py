@@ -10,18 +10,22 @@ from PIL import Image, ImageTk
 import shutil
 import logging
 import time
+import requests, io, datetime
 
+# Адрес API вашего сервера
+API_HOST = 'http://127.0.0.1:5001'     # или 'http://<IP_СЕРВЕРА>:5001'
+API_URL  = API_HOST + '/api'
 # Настройка логирования в файл
 logging.basicConfig(
-    filename='access.log',
+    filename='server/data/access.log',
     level=logging.INFO,
     format='%(asctime)s %(levelname)s: %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
 # Папка для хранения эталонных лиц
-KNOWN_FACES_DIR = 'known_faces'
-DEPARTMENTS_FILE = 'departments.txt'
+KNOWN_FACES_DIR = 'server/data/known_faces'
+DEPARTMENTS_FILE = 'server/data/departments.txt'
 ENVIRONMENT_FILE = 'environment.txt'
 os.makedirs(KNOWN_FACES_DIR, exist_ok=True)
 
@@ -47,19 +51,20 @@ DEPARTMENT_OPTIONS = {
 
 # --- Функция загрузки эталонных лиц ---
 def load_known_faces():
-    known_encodings = []
-    known_names = []
-    for root_dir, _dirs, files in os.walk(KNOWN_FACES_DIR):
-        for filename in files:
-            if filename.lower().endswith((".jpg", ".png")):
-                path = os.path.join(root_dir, filename)
-                image = face_recognition.load_image_file(path)
-                encs = face_recognition.face_encodings(image)
-                if encs:
-                    known_encodings.append(encs[0])
-                    known_names.append(os.path.splitext(filename)[0])
+    known_encodings, known_names = [], []
+    resp = requests.get(f"{API_URL}/employees")
+    for emp in resp.json():
+        # тянем фото по URL
+        # emp['photo_url'] == "/api/employees/photo/<filename>"
+        photo_url = API_HOST + emp['photo_url']
+        r = requests.get(photo_url, timeout=5)
+        r.raise_for_status()
+        img = face_recognition.load_image_file(io.BytesIO(r.content))
+        encs = face_recognition.face_encodings(img)
+        if encs:
+            known_encodings.append(encs[0])
+            known_names.append(emp['name'])
     return known_encodings, known_names
-
 
 def load_department_mapping():
     mapping = {}
@@ -303,18 +308,22 @@ class FaceRecognitionApp:
         ttk.Button(f, text="Обновить", command=self._load_logs).pack(pady=5)
 
     def _load_logs(self):
+        # Определяем направление сортировки для сервера
+        order = 'asc' if self.sort_var.get() == "По возрастанию" else 'desc'
         try:
-            with open('access.log', 'r') as file:
-                lines = file.readlines()
-                if self.sort_var.get() == "По возрастанию":
-                    lines.sort()
-                else:
-                    lines.sort(reverse=True)
-                data = "".join(lines)
-        except FileNotFoundError:
-            data = 'Логов пока нет.'
+            # Делаем запрос GET /api/logs?order=asc|desc
+            resp = requests.get(f"{API_URL}/logs", params={'order': order}, timeout=5)
+            resp.raise_for_status()
+            # Сервер возвращает JSON-массив строк
+            lines = resp.json()
+            data = "\n".join(lines)
+        except Exception as e:
+            # На случай сетевых ошибок
+            data = f"Не удалось получить логи: {e}"
+
+        # Обновляем виджет
         self.log_text.delete('1.0', tk.END)
-        self.log_text.insert(tk.END, data)
+        self.log_text.insert('1.0', data)
 
     def _show_frame(self, target):
         for frm in (self.frame_role, self.frame_employee, self.frame_admin_choice, self.frame_admin,
@@ -357,18 +366,36 @@ class FaceRecognitionApp:
     def _add_environment(self):
         name = self.env_name_entry.get().strip()
         loc = self.env_loc_entry.get().strip()
-        img = self.env_selected_image
-        if not name or not loc or not img:
+        img_path = self.env_selected_image
+        if not name or not loc or not img_path:
             messagebox.showwarning("Ошибка", "Заполните все поля и выберите изображение")
             return
-        self.environments.append({'name': name, 'location': loc, 'image': img})
-        save_environments(self.environments)
-        self.env_status.config(text="Помещение добавлено")
-        self.env_name_entry.delete(0, 'end')
-        self.env_loc_entry.delete(0, 'end')
-        self.env_selected_image = ''
-        self.env_image_label.config(text="")
-        self._refresh_env_catalog()
+
+        # 1) Подготовка multipart/form-data
+        files = {'image': open(img_path, 'rb')}
+        data = {'name': name, 'location': loc}
+
+        # 2) POST на /api/environments
+        resp = requests.post(f"{API_URL}/environments", data=data, files=files)
+        if resp.status_code == 201:
+            # 3) Сервер вернул JSON с данными нового помещения
+            env = resp.json()
+            # env = {'id':..., 'name': name, 'location': loc, 'image_url': ...}
+
+            # 4) Обновляем локальный список и интерфейс
+            self.environments.append(env)
+            self.env_status.config(text="Помещение добавлено на сервер")
+            # Сброс полей формы
+            self.env_name_entry.delete(0, 'end')
+            self.env_loc_entry.delete(0, 'end')
+            self.env_image_label.config(text="")
+            self.env_selected_image = ''
+            # Перерисовать каталог
+            self._refresh_env_catalog()
+
+        else:
+            # Если сервер вернул ошибку
+            messagebox.showerror("Ошибка сервера", f"{resp.status_code}: {resp.text}")
 
     def _upload_employee(self):
         name = self.name_entry.get().strip()
@@ -376,18 +403,24 @@ class FaceRecognitionApp:
         if not name or not self.selected_file or not dept:
             messagebox.showwarning("Ошибка", "Введите ФИО, подразделение и файл")
             return
-        department_folder = os.path.join(KNOWN_FACES_DIR, dept)
-        os.makedirs(department_folder, exist_ok=True)
-        ext = os.path.splitext(self.selected_file)[1]
-        dest = os.path.join(department_folder, f"{name}{ext}")
-        shutil.copy(self.selected_file, dest)
-        self.employee_depts[name] = dept
-        save_department_mapping(self.employee_depts)
-        self.known_face_encodings, self.known_face_names = load_known_faces()
-        self.admin_status.config(text=f"Сотрудник {name} добавлен")
-        self.name_entry.delete(0, 'end')
-        self.selected_file = None
-        self._refresh_catalog()
+
+        # Готовим multipart/form-data запрос
+        files = {'photo': open(self.selected_file, 'rb')}
+        data = {'name': name, 'dept': dept}
+
+        # POST /api/employees
+        resp = requests.post(f"{API_URL}/employees", data=data, files=files)
+        if resp.status_code == 201:
+            # Успешно добавили на сервер
+            self.admin_status.config(text=f"Сотрудник {name} добавлен на сервер")
+            # Обновляем локальные списки лиц
+            self.known_face_encodings, self.known_face_names = load_known_faces()
+            self._refresh_catalog()
+            # Сбрасываем поля формы
+            self.name_entry.delete(0, 'end')
+            self.selected_file = None
+        else:
+            messagebox.showerror("Ошибка сервера", f"Код {resp.status_code}: {resp.text}")
 
     def _refresh_env_catalog(self):
         for w in self.env_inner.winfo_children():
@@ -448,8 +481,8 @@ class FaceRecognitionApp:
 
     def _start_employee_cam(self):
         if self.cap is None:
-            self.cap = cv2.VideoCapture(0);
-            self.start_time = time.time();
+            self.cap = cv2.VideoCapture(0)
+            self.start_time = time.time()
             self.fail_count = 0
             self.attempts_label.config(text="Неудачные попытки: 0")
             self.status_label.config(text="Камера запущена. Ожидание распознавания...")
@@ -490,11 +523,11 @@ class FaceRecognitionApp:
                     np.argmin(dists)]; break
             if recognized:
                 dept = self.employee_depts.get(name, 'Unknown')
-                logging.info(f"Access granted for {name} ({dept})")
+                self._send_log('INFO', f"Access granted for {name} ({dept})")
                 self._show_access_granted()
                 return
             if time.time() - self.start_time >= self.auth_timeout:
-                logging.warning(f"Failed authentication attempt {self.fail_count + 1}")
+                self._send_log('WARNING', f"Failed authentication attempt {self.fail_count + 1}")
                 self.fail_count += 1;
                 self.attempts_label.config(text=f"Неудачные попытки: {self.fail_count}");
                 self.start_time = time.time()
@@ -513,10 +546,27 @@ class FaceRecognitionApp:
                     self.status_label.config(text="Лицо не опознано. Попробуйте снова.")
         self.process_frame = not self.process_frame;
         self.root.after(30, self._update_frame)
+    def _send_log(self, level: str, msg: str):
+        """
+        Отправляет одну строку лога на сервер.
+        level — 'INFO' или 'WARNING'
+        msg   — сообщение вида "Access granted for Иван Иванов (dept)"
+        """
+        entry = {
+            'timestamp': datetime.datetime.utcnow().isoformat(),
+            'level': level,
+            'message': msg
+        }
+        try:
+            requests.post(f"{API_URL}/logs", json=entry, timeout=2)
+        except Exception as e:
+            # на случай, если сервер недоступен, можно просто пропустить
+            print("Не удалось отправить лог:", e)
 
     def on_closing(self):
         self._stop_camera();
         self.root.destroy()
+
 
 
 if __name__ == '__main__':
