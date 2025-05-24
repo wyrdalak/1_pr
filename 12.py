@@ -59,7 +59,8 @@ def load_known_faces():
         photo_url = API_HOST + emp['photo_url']
         r = requests.get(photo_url, timeout=5)
         r.raise_for_status()
-        img = face_recognition.load_image_file(io.BytesIO(r.content))
+        img_pil = Image.open(io.BytesIO(r.content)).convert('RGB')
+        img = np.array(img_pil)
         encs = face_recognition.face_encodings(img)
         if encs:
             known_encodings.append(encs[0])
@@ -152,6 +153,10 @@ class FaceRecognitionApp:
         s.configure('Title.TLabel', font=('Arial', 24, 'bold'), foreground='white', background='#2c3e50')
         s.configure('Status.TLabel', font=('Arial', 18), foreground='white', background='#2c3e50')
         s.configure('Attempts.TLabel', font=('Arial', 16), foreground='#e74c3c', background='#34495e')
+        s.configure('Success.TLabel', font=('Arial', 32, 'bold'), foreground='white', background='#27ae60')
+        s.configure('Denied.TLabel', font=('Arial', 32, 'bold'), foreground='white', background='#c0392b')
+        s.configure('Cam.TLabelframe', background='#2c3e50', foreground='white')
+        s.configure('Cam.TLabelframe.Label', font=('Arial', 18, 'bold'), foreground='white', background='#2c3e50')
         self.root.configure(background='#2c3e50')
 
     def _build_role_frame(self):
@@ -190,18 +195,24 @@ class FaceRecognitionApp:
 
     def _build_employee_frame(self):
         f = self.frame_employee
-        self.emp_back_btn = ttk.Button(f, text="Назад", command=lambda: self._show_frame(self.frame_role))
-        self.emp_back_btn.pack(anchor='nw', padx=10, pady=10)
-        self.emp_exit_btn = ttk.Button(f, text="Завершить", command=self.on_closing)
-        self.emp_exit_btn.pack(anchor='ne', padx=10, pady=10)
+        nav = ttk.Frame(f)
+        nav.pack(fill='x')
+        self.emp_back_btn = ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role))
+        self.emp_back_btn.pack(side='left', padx=10, pady=10)
+        self.emp_exit_btn = ttk.Button(nav, text="Завершить", command=self.on_closing)
+        self.emp_exit_btn.pack(side='right', padx=10, pady=10)
         self.emp_back_pack = self.emp_back_btn.pack_info()
         self.emp_exit_pack = self.emp_exit_btn.pack_info()
+
+        cam_box = ttk.LabelFrame(f, text="Камера", style='Cam.TLabelframe')
+        cam_box.pack(expand=True, fill='both', padx=20, pady=10)
+        self.video_label = tk.Label(cam_box, bg='#34495e', bd=2, relief='sunken')
+        self.video_label.pack(expand=True, fill='both')
+
         self.attempts_label = ttk.Label(f, text="Неудачные попытки: 0", style='Attempts.TLabel')
-        self.attempts_label.pack(side='left', padx=20, pady=20)
-        self.video_label = tk.Label(f, bg='#34495e')
-        self.video_label.pack(side='left', expand=True, fill='both')
+        self.attempts_label.pack(pady=5)
         self.status_label = ttk.Label(f, text="Камера не запущена", style='Status.TLabel')
-        self.status_label.pack(pady=10)
+        self.status_label.pack(pady=5)
 
     def _build_admin_choice_frame(self):
         f = self.frame_admin_choice
@@ -495,10 +506,23 @@ class FaceRecognitionApp:
         self._stop_camera();
         self.emp_back_btn.pack_forget();
         self.emp_exit_btn.pack_forget()
-        overlay = ttk.Label(self.frame_employee, text="Вход разрешен", style='Title.TLabel');
+        overlay = ttk.Label(self.frame_employee, text="Вход разрешен", style='Success.TLabel');
         overlay.place(relx=0.5, rely=0.5, anchor='center')
 
         def reset(): overlay.destroy(); self._show_frame(self.frame_role)
+
+        self.root.after(5000, reset)
+
+    def _show_access_denied(self):
+        self._stop_camera();
+        self.emp_back_btn.pack_forget();
+        self.emp_exit_btn.pack_forget();
+        overlay = ttk.Label(self.frame_employee, text="Доступ запрещен", style='Denied.TLabel')
+        overlay.place(relx=0.5, rely=0.5, anchor='center')
+
+        def reset():
+            overlay.destroy();
+            self._show_frame(self.frame_role)
 
         self.root.after(5000, reset)
 
@@ -532,15 +556,7 @@ class FaceRecognitionApp:
                 self.attempts_label.config(text=f"Неудачные попытки: {self.fail_count}");
                 self.start_time = time.time()
                 if self.fail_count > 3:
-                    overlay_denied = ttk.Label(self.frame_employee, text="Похоже, вам сюда нельзя",
-                                               style='Title.TLabel');
-                    overlay_denied.place(relx=0.5, rely=0.5, anchor='center')
-                    self._stop_camera()
-
-                    def reset_denied():
-                        overlay_denied.destroy(); self._show_frame(self.frame_role)
-
-                    self.root.after(5000, reset_denied);
+                    self._show_access_denied()
                     return
                 else:
                     self.status_label.config(text="Лицо не опознано. Попробуйте снова.")
