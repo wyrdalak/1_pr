@@ -59,7 +59,8 @@ def load_known_faces():
         photo_url = API_HOST + emp['photo_url']
         r = requests.get(photo_url, timeout=5)
         r.raise_for_status()
-        img = face_recognition.load_image_file(io.BytesIO(r.content))
+        img_pil = Image.open(io.BytesIO(r.content)).convert('RGB')
+        img = np.array(img_pil)
         encs = face_recognition.face_encodings(img)
         if encs:
             known_encodings.append(encs[0])
@@ -152,6 +153,11 @@ class FaceRecognitionApp:
         s.configure('Title.TLabel', font=('Arial', 24, 'bold'), foreground='white', background='#2c3e50')
         s.configure('Status.TLabel', font=('Arial', 18), foreground='white', background='#2c3e50')
         s.configure('Attempts.TLabel', font=('Arial', 16), foreground='#e74c3c', background='#34495e')
+        s.configure('Nav.TFrame', background='#2c3e50')
+        s.configure('Cam.TLabelframe', background='#2c3e50', borderwidth=3, relief='groove')
+        s.configure('Cam.TLabelframe.Label', foreground='white', background='#2c3e50', font=('Arial', 16, 'bold'))
+        s.configure('Success.TLabel', font=('Arial', 28, 'bold'), foreground='white', background='#27ae60')
+        s.configure('Denied.TLabel', font=('Arial', 28, 'bold'), foreground='white', background='#c0392b')
         self.root.configure(background='#2c3e50')
 
     def _build_role_frame(self):
@@ -190,18 +196,34 @@ class FaceRecognitionApp:
 
     def _build_employee_frame(self):
         f = self.frame_employee
-        self.emp_back_btn = ttk.Button(f, text="Назад", command=lambda: self._show_frame(self.frame_role))
-        self.emp_back_btn.pack(anchor='nw', padx=10, pady=10)
-        self.emp_exit_btn = ttk.Button(f, text="Завершить", command=self.on_closing)
-        self.emp_exit_btn.pack(anchor='ne', padx=10, pady=10)
-        self.emp_back_pack = self.emp_back_btn.pack_info()
-        self.emp_exit_pack = self.emp_exit_btn.pack_info()
+        f.columnconfigure(0, weight=1)
+        # ---- navigation bar ----
+        nav = ttk.Frame(f, style='Nav.TFrame')
+        nav.grid(row=0, column=0, sticky='ew')
+        nav.columnconfigure(0, weight=1)
+        nav.columnconfigure(1, weight=1)
+        nav.columnconfigure(2, weight=1)
+
+        self.emp_back_btn = ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role))
+        self.emp_back_btn.grid(row=0, column=0, sticky='w', padx=10, pady=10)
+
+        self.emp_title = ttk.Label(nav, text="Предоставление доступа", style='Title.TLabel')
+        self.emp_title.grid(row=0, column=1)
+
+        self.emp_exit_btn = ttk.Button(nav, text="Завершить", command=self.on_closing)
+        self.emp_exit_btn.grid(row=0, column=2, sticky='e', padx=10, pady=10)
+
+        # ---- camera frame ----
+        self.cam_frame = ttk.LabelFrame(f, style='Cam.TLabelframe')
+        self.cam_frame.grid(row=1, column=0, padx=20, pady=10)
+        self.video_label = tk.Label(self.cam_frame, bg='#34495e')
+        self.video_label.pack(expand=True, fill='both')
+
         self.attempts_label = ttk.Label(f, text="Неудачные попытки: 0", style='Attempts.TLabel')
-        self.attempts_label.pack(side='left', padx=20, pady=20)
-        self.video_label = tk.Label(f, bg='#34495e')
-        self.video_label.pack(side='left', expand=True, fill='both')
+        self.attempts_label.grid(row=2, column=0, pady=(5, 10))
+
         self.status_label = ttk.Label(f, text="Камера не запущена", style='Status.TLabel')
-        self.status_label.pack(pady=10)
+        self.status_label.grid(row=3, column=0, pady=(0, 10))
 
     def _build_admin_choice_frame(self):
         f = self.frame_admin_choice
@@ -332,8 +354,10 @@ class FaceRecognitionApp:
         target.pack(expand=True, fill='both')
         self.root.update_idletasks()
         if target == self.frame_employee:
-            self.emp_back_btn.pack(**self.emp_back_pack)
-            self.emp_exit_btn.pack(**self.emp_exit_pack)
+            # вернуть элементы навигации на место, если они были скрыты
+            self.emp_back_btn.grid()
+            self.emp_exit_btn.grid()
+            self.emp_title.grid()
             self._start_employee_cam()
         else:
             self._stop_camera()
@@ -492,13 +516,19 @@ class FaceRecognitionApp:
         if self.cap: self.cap.release(); self.cap = None
 
     def _show_access_granted(self):
-        self._stop_camera();
-        self.emp_back_btn.pack_forget();
-        self.emp_exit_btn.pack_forget()
-        overlay = ttk.Label(self.frame_employee, text="Вход разрешен", style='Title.TLabel');
+        self._stop_camera()
+        self.emp_back_btn.grid_remove()
+        self.emp_exit_btn.grid_remove()
+        self.emp_title.grid_remove()
+        overlay = ttk.Label(self.frame_employee, text="Вход разрешен", style='Success.TLabel')
         overlay.place(relx=0.5, rely=0.5, anchor='center')
 
-        def reset(): overlay.destroy(); self._show_frame(self.frame_role)
+        def reset():
+            overlay.destroy()
+            self.emp_back_btn.grid()
+            self.emp_exit_btn.grid()
+            self.emp_title.grid()
+            self._show_frame(self.frame_role)
 
         self.root.after(5000, reset)
 
@@ -533,14 +563,21 @@ class FaceRecognitionApp:
                 self.start_time = time.time()
                 if self.fail_count > 3:
                     overlay_denied = ttk.Label(self.frame_employee, text="Похоже, вам сюда нельзя",
-                                               style='Title.TLabel');
+                                               style='Denied.TLabel')
                     overlay_denied.place(relx=0.5, rely=0.5, anchor='center')
+                    self.emp_back_btn.grid_remove()
+                    self.emp_exit_btn.grid_remove()
+                    self.emp_title.grid_remove()
                     self._stop_camera()
 
                     def reset_denied():
-                        overlay_denied.destroy(); self._show_frame(self.frame_role)
+                        overlay_denied.destroy()
+                        self.emp_back_btn.grid()
+                        self.emp_exit_btn.grid()
+                        self.emp_title.grid()
+                        self._show_frame(self.frame_role)
 
-                    self.root.after(5000, reset_denied);
+                    self.root.after(5000, reset_denied)
                     return
                 else:
                     self.status_label.config(text="Лицо не опознано. Попробуйте снова.")
