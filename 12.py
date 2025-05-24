@@ -21,27 +21,66 @@ logging.basicConfig(
 
 # Папка для хранения эталонных лиц
 KNOWN_FACES_DIR = 'known_faces'
+DEPARTMENTS_FILE = 'departments.txt'
 os.makedirs(KNOWN_FACES_DIR, exist_ok=True)
+
+DEPARTMENT_OPTIONS = {
+    'Блок по бизнес приложениям': [
+        'Департамент систем поддержки эксплуатации АЭС',
+        'Отдел внедрения НСИ'
+    ],
+    'Блок по информационной инфраструктуре и связи': [
+        'Департамент обеспечения защиты ИТ инфраструктуры',
+        'Департамент инфраструктуры систем',
+        'Департамент научно-исследовательской работы и опытно-конструкторских работ и результатов интеллектуальной деятельности',
+        'Департамент информационных систем'
+    ],
+    'Филиалы': [
+        'Нововоронежская АЭС',
+        'Балаковская АЭС',
+        'Курская АЭС',
+        'Курская АЭС-2'
+    ]
+}
 
 
 # --- Функция загрузки эталонных лиц ---
 def load_known_faces():
     known_encodings = []
     known_names = []
-    for filename in os.listdir(KNOWN_FACES_DIR):
-        if filename.lower().endswith(('.jpg', '.png')):
-            path = os.path.join(KNOWN_FACES_DIR, filename)
-            image = face_recognition.load_image_file(path)
-            encs = face_recognition.face_encodings(image)
-            if encs:
-                known_encodings.append(encs[0])
-                known_names.append(os.path.splitext(filename)[0])
+    for root_dir, _dirs, files in os.walk(KNOWN_FACES_DIR):
+        for filename in files:
+            if filename.lower().endswith((".jpg", ".png")):
+                path = os.path.join(root_dir, filename)
+                image = face_recognition.load_image_file(path)
+                encs = face_recognition.face_encodings(image)
+                if encs:
+                    known_encodings.append(encs[0])
+                    known_names.append(os.path.splitext(filename)[0])
     return known_encodings, known_names
+
+
+def load_department_mapping():
+    mapping = {}
+    if os.path.exists(DEPARTMENTS_FILE):
+        with open(DEPARTMENTS_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                if ";" in line:
+                    name, dept = line.strip().split(";", 1)
+                    mapping[name] = dept
+    return mapping
+
+
+def save_department_mapping(mapping):
+    with open(DEPARTMENTS_FILE, "w", encoding="utf-8") as f:
+        for name, dept in mapping.items():
+            f.write(f"{name};{dept}\n")
 
 
 class FaceRecognitionApp:
     def __init__(self):
         self.known_face_encodings, self.known_face_names = load_known_faces()
+        self.employee_depts = load_department_mapping()
         self.process_frame = True
         self.cap = None
         self.start_time = None
@@ -59,6 +98,11 @@ class FaceRecognitionApp:
         self.frame_employee = ttk.Frame(self.root)
         self.frame_admin = ttk.Frame(self.root)
         self.frame_security = ttk.Frame(self.root)
+
+        self.departments_map = DEPARTMENT_OPTIONS
+        first_group = list(self.departments_map.keys())[0]
+        self.group_var = tk.StringVar(value=first_group)
+        self.dept_var = tk.StringVar(value=self.departments_map[first_group][0])
 
         # Построение интерфейсов
         self._build_role_frame()
@@ -139,10 +183,17 @@ class FaceRecognitionApp:
         frm = ttk.Frame(f);
         frm.pack(pady=10)
         ttk.Label(frm, text="ФИО:").grid(row=0, column=0, sticky='e')
-        self.name_entry = ttk.Entry(frm, width=30);
-        self.name_entry.grid(row=0, column=1)
-        ttk.Label(frm, text="Фото:").grid(row=1, column=0, sticky='e')
-        ttk.Button(frm, text="Выбрать файл", command=self._choose_file).grid(row=1, column=1)
+        self.name_entry = ttk.Entry(frm, width=30)
+        self.name_entry.grid(row=0, column=1, columnspan=2, sticky='w')
+        ttk.Label(frm, text="Блок:").grid(row=1, column=0, sticky='e')
+        self.group_menu = ttk.OptionMenu(frm, self.group_var, self.group_var.get(), *self.departments_map.keys(), command=self._update_dept_menu)
+        self.group_menu.grid(row=1, column=1, sticky='w')
+        ttk.Label(frm, text="Подразделение:").grid(row=1, column=2, sticky='e')
+        self.dept_menu = ttk.OptionMenu(frm, self.dept_var, self.dept_var.get(), '')
+        self.dept_menu.grid(row=1, column=3, sticky='w')
+        self._update_dept_menu()
+        ttk.Label(frm, text="Фото:").grid(row=2, column=0, sticky='e')
+        ttk.Button(frm, text="Выбрать файл", command=self._choose_file).grid(row=2, column=1, sticky='w')
         self.selected_file = None
         ttk.Button(f, text="Загрузить", command=self._upload_employee).pack(pady=10)
         self.admin_status = ttk.Label(f, text="", style='Status.TLabel');
@@ -158,21 +209,38 @@ class FaceRecognitionApp:
         self.canvas.pack(side='left', fill='both', expand=True)
         self.scrollbar.pack(side='right', fill='y')
 
+    def _update_dept_menu(self, *_):
+        menu = self.dept_menu['menu']
+        menu.delete(0, 'end')
+        options = self.departments_map.get(self.group_var.get(), [])
+        for opt in options:
+            menu.add_command(label=opt, command=lambda v=opt: self.dept_var.set(v))
+        if options:
+            self.dept_var.set(options[0])
+
     def _build_security_frame(self):
         f = self.frame_security
-        nav = ttk.Frame(f);
-        nav.pack(fill='x')
-        ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side='left', padx=10,
-                                                                                              pady=10)
-        ttk.Label(f, text="Служба безопасности - Логи доступа", style='Title.TLabel').pack(pady=10)
-        self.log_text = scrolledtext.ScrolledText(f, width=100, height=30, font=('Courier', 12))
-        self.log_text.pack(expand=True, fill='both', padx=20, pady=10)
+        nav = ttk.Frame(f)
+        nav.pack(fill="x")
+        ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side="left", padx=10,
+                      pady=10)
+        self.sort_var = tk.StringVar(value="По убыванию")
+        ttk.Label(nav, text="Сортировка:").pack(side="left", padx=5)
+        ttk.OptionMenu(nav, self.sort_var, "По убыванию", "По убыванию", "По возрастанию", command=lambda _=None: self._load_logs()).pack(side="left")
+        ttk.Label(f, text="Служба безопасности - Логи доступа", style="Title.TLabel").pack(pady=10)
+        self.log_text = scrolledtext.ScrolledText(f, width=100, height=30, font=("Courier", 12))
+        self.log_text.pack(expand=True, fill="both", padx=20, pady=10)
         ttk.Button(f, text="Обновить", command=self._load_logs).pack(pady=5)
 
     def _load_logs(self):
         try:
             with open('access.log', 'r') as file:
-                data = file.read()
+                lines = file.readlines()
+                if self.sort_var.get() == "По возрастанию":
+                    lines.sort()
+                else:
+                    lines.sort(reverse=True)
+                data = "".join(lines)
         except FileNotFoundError:
             data = 'Логов пока нет.'
         self.log_text.delete('1.0', tk.END)
@@ -204,40 +272,54 @@ class FaceRecognitionApp:
 
     def _upload_employee(self):
         name = self.name_entry.get().strip()
-        if not name or not self.selected_file:
-            messagebox.showwarning("Ошибка", "Введите ФИО и выберите файл")
+        dept = self.dept_var.get()
+        if not name or not self.selected_file or not dept:
+            messagebox.showwarning("Ошибка", "Введите ФИО, подразделение и файл")
             return
+        department_folder = os.path.join(KNOWN_FACES_DIR, dept)
+        os.makedirs(department_folder, exist_ok=True)
         ext = os.path.splitext(self.selected_file)[1]
-        dest = os.path.join(KNOWN_FACES_DIR, f"{name}{ext}")
+        dest = os.path.join(department_folder, f"{name}{ext}")
         shutil.copy(self.selected_file, dest)
+        self.employee_depts[name] = dept
+        save_department_mapping(self.employee_depts)
         self.known_face_encodings, self.known_face_names = load_known_faces()
         self.admin_status.config(text=f"Сотрудник {name} добавлен")
-        self.name_entry.delete(0, 'end');
-        self.selected_file = None;
+        self.name_entry.delete(0, 'end')
+        self.selected_file = None
         self._refresh_catalog()
 
     def _refresh_catalog(self):
-        for w in self.inner.winfo_children(): w.destroy()
-        for fn in os.listdir(KNOWN_FACES_DIR):
-            if not fn.lower().endswith(('.jpg', '.png')): continue
-            name = os.path.splitext(fn)[0];
-            path = os.path.join(KNOWN_FACES_DIR, fn)
-            rec = ttk.Frame(self.inner, padding=5);
-            rec.pack(fill='x', pady=5)
-            img = Image.open(path);
-            img.thumbnail((64, 64));
-            ph = ImageTk.PhotoImage(img)
-            lbl = tk.Label(rec, image=ph);
-            lbl.image = ph;
-            lbl.pack(side='left', padx=5)
-            ttk.Label(rec, text=name, style='Status.TLabel').pack(side='left', padx=10)
-            ttk.Button(rec, text="Удалить", command=lambda n=name: self._delete_employee(n)).pack(side='right', padx=5)
+        for w in self.inner.winfo_children():
+            w.destroy()
+        for root_dir, _dirs, files in os.walk(KNOWN_FACES_DIR):
+            for fn in files:
+                if not fn.lower().endswith((".jpg", ".png")):
+                    continue
+                name = os.path.splitext(fn)[0]
+                path = os.path.join(root_dir, fn)
+                rec = ttk.Frame(self.inner, padding=5)
+                rec.pack(fill='x', pady=5)
+                img = Image.open(path)
+                img.thumbnail((64, 64))
+                ph = ImageTk.PhotoImage(img)
+                lbl = tk.Label(rec, image=ph)
+                lbl.image = ph
+                lbl.pack(side='left', padx=5)
+                dept = self.employee_depts.get(name, os.path.basename(root_dir))
+                ttk.Label(rec, text=f"{name} ({dept})", style='Status.TLabel').pack(side='left', padx=10)
+                ttk.Button(rec, text="Удалить", command=lambda n=name: self._delete_employee(n)).pack(side='right', padx=5)
 
     def _delete_employee(self, name):
-        for e in ('.jpg', '.png'):
-            p = os.path.join(KNOWN_FACES_DIR, f"{name}{e}")
-            if os.path.exists(p): os.remove(p)
-        self.known_face_encodings, self.known_face_names = load_known_faces();
+        for root_dir, _dirs, files in os.walk(KNOWN_FACES_DIR):
+            for e in ('.jpg', '.png'):
+                file = f"{name}{e}"
+                if file in files:
+                    os.remove(os.path.join(root_dir, file))
+        if name in self.employee_depts:
+            del self.employee_depts[name]
+            save_department_mapping(self.employee_depts)
+        self.known_face_encodings, self.known_face_names = load_known_faces()
         self._refresh_catalog()
 
     def _start_employee_cam(self):
@@ -283,8 +365,9 @@ class FaceRecognitionApp:
                 if len(dists) > 0 and matches[np.argmin(dists)]: recognized = True; name = self.known_face_names[
                     np.argmin(dists)]; break
             if recognized:
-                logging.info(f"Access granted for {name}")
-                self._show_access_granted();
+                dept = self.employee_depts.get(name, 'Unknown')
+                logging.info(f"Access granted for {name} ({dept})")
+                self._show_access_granted()
                 return
             if time.time() - self.start_time >= self.auth_timeout:
                 logging.warning(f"Failed authentication attempt {self.fail_count + 1}")
