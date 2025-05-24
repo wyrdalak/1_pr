@@ -165,33 +165,6 @@ class FaceRecognitionApp:
         s.configure('Cam.TLabelframe.Label', font=('Arial', 18, 'bold'), foreground='white', background='#2c3e50')
         self.root.configure(background='#2c3e50')
 
-    def _apply_gradient_background(self, frame):
-        """Draw the same gradient background as the role selection screen."""
-        w, h = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-        canvas = tk.Canvas(frame, width=w, height=h, highlightthickness=0)
-        for i in range(h):
-            r = int(44 + (52 - 44) * i / h)
-            g = int(62 + (152 - 62) * i / h)
-            b = int(80 + (219 - 80) * i / h)
-            canvas.create_line(0, i, w, i, fill=f"#{r:02x}{g:02x}{b:02x}")
-        canvas.place(x=0, y=0, relwidth=1, relheight=1)
-        canvas.lower()
-        return canvas
-
-    def _create_role_button(self, parent, text, command, *, width=300, height=60, font_size=24):
-        """Create a canvas-based gradient button styled like the role buttons."""
-        c = tk.Canvas(parent, width=width, height=height, highlightthickness=0)
-        c1, c2 = (46, 204, 113), (39, 174, 96)
-        for x in range(width):
-            cr = int(c1[0] + (c2[0] - c1[0]) * x / width)
-            cg = int(c1[1] + (c2[1] - c1[1]) * x / width)
-            cb = int(c1[2] + (c2[2] - c1[2]) * x / width)
-            c.create_line(x, 0, x, height, fill=f"#{cr:02x}{cg:02x}{cb:02x}")
-        fnt = tkfont.Font(family='Helvetica', size=font_size)
-        c.create_text(width / 2, height / 2, text=text, font=fnt, fill='white')
-        c.bind('<Button-1>', lambda e: command())
-        return c
-
     def _build_role_frame(self):
         f = self.frame_role
         f.pack(expand=True, fill='both')
@@ -228,21 +201,15 @@ class FaceRecognitionApp:
 
     def _build_employee_frame(self):
         f = self.frame_employee
-        self._apply_gradient_background(f)
-
-        nav = ttk.Frame(f, style='Cam.TLabelframe')
+        nav = ttk.Frame(f)
         nav.pack(fill='x')
-        self.emp_back_btn = self._create_role_button(nav, "Назад", lambda: self._show_frame(self.frame_role))
+        self.emp_back_btn = ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role))
         self.emp_back_btn.pack(side='left', padx=10, pady=10)
-        self.emp_exit_btn = self._create_role_button(nav, "Завершить", self.on_closing)
+        self.emp_exit_btn = ttk.Button(nav, text="Завершить", command=self.on_closing)
         self.emp_exit_btn.pack(side='right', padx=10, pady=10)
         self.emp_back_pack = self.emp_back_btn.pack_info()
         self.emp_exit_pack = self.emp_exit_btn.pack_info()
-
-        w, h = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-        self.start_button = self._create_role_button(
-            f, "Начать идентификацию", self._on_start_identification,
-            width=w, height=h, font_size=120)
+        self.start_button = ttk.Button(f, text="Начать идентификацию", command=self._on_start_identification)
         self.start_button.pack(expand=True, fill='both')
 
         self.cam_box = ttk.LabelFrame(f, text="Камера", style='Cam.TLabelframe')
@@ -253,7 +220,6 @@ class FaceRecognitionApp:
 
     def _build_admin_choice_frame(self):
         f = self.frame_admin_choice
-        self._apply_gradient_background(f)
         nav = ttk.Frame(f)
         nav.pack(fill='x')
         ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side='left', padx=10, pady=10)
@@ -264,7 +230,6 @@ class FaceRecognitionApp:
 
     def _build_admin_frame(self):
         f = self.frame_admin
-        self._apply_gradient_background(f)
         nav = ttk.Frame(f);
         nav.pack(fill='x')
         ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_admin_choice)).pack(side='left', padx=10,
@@ -302,7 +267,6 @@ class FaceRecognitionApp:
 
     def _build_admin_env_frame(self):
         f = self.frame_admin_env
-        self._apply_gradient_background(f)
         nav = ttk.Frame(f)
         nav.pack(fill='x')
         ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_admin_choice)).pack(side='left', padx=10, pady=10)
@@ -357,14 +321,13 @@ class FaceRecognitionApp:
 
     def _on_start_identification(self):
         self.start_button.pack_forget()
-        self.cam_box.pack(expand=True, fill='both', padx=20, pady=10)
         self.attempts_label.pack(pady=5)
+        self.cam_box.pack(expand=True, fill='both', padx=20, pady=10)
         self.status_label.pack(pady=5)
         self._start_employee_cam()
 
     def _build_security_frame(self):
         f = self.frame_security
-        self._apply_gradient_background(f)
         nav = ttk.Frame(f)
         nav.pack(fill="x")
         ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side="left", padx=10,
