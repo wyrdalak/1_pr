@@ -119,6 +119,7 @@ class FaceRecognitionApp:
         self.cap = None
         self.start_time = None
         self.fail_count = 0
+        self.total_failed_identifications = 0
         self.auth_timeout = 5
 
         self.root = tk.Tk()
@@ -252,6 +253,7 @@ class FaceRecognitionApp:
         self.video_label = tk.Label(self.cam_box, bg='#34495e', bd=2, relief='sunken')
         self.video_label.pack(expand=True, fill='both')
         self.attempts_label = ttk.Label(f, text="Неудачные попытки: 0", style='Attempts.TLabel')
+        self.total_fail_label = ttk.Label(f, text="Всего неудачных идентификаций: 0", style='Attempts.TLabel')
         self.status_label = ttk.Label(f, text="Камера не запущена", style='Status.TLabel')
 
     def _build_admin_choice_frame(self):
@@ -352,6 +354,7 @@ class FaceRecognitionApp:
         self._stop_camera()
         self.cam_box.pack_forget()
         self.attempts_label.pack_forget()
+        self.total_fail_label.pack_forget()
         self.status_label.pack_forget()
         if not self.start_button.winfo_ismapped():
             self.start_button.pack(expand=True)
@@ -362,6 +365,7 @@ class FaceRecognitionApp:
         self.start_button.pack_forget()
         self.cam_box.pack(expand=True, fill='both', padx=20, pady=10)
         self.attempts_label.pack(pady=5)
+        self.total_fail_label.pack(pady=5)
         self.status_label.pack(pady=5)
         self._start_employee_cam()
 
@@ -582,6 +586,7 @@ class FaceRecognitionApp:
             self.start_time = time.time()
             self.fail_count = 0
             self.attempts_label.config(text="Неудачные попытки: 0")
+            self.total_fail_label.config(text=f"Всего неудачных идентификаций: {self.total_failed_identifications}")
             self.status_label.config(text="Камера запущена. Ожидание распознавания...")
             self._update_frame()
 
@@ -638,8 +643,10 @@ class FaceRecognitionApp:
                 return
             if time.time() - self.start_time >= self.auth_timeout:
                 self._send_log('WARNING', f"Failed authentication attempt {self.fail_count + 1}")
-                self.fail_count += 1;
-                self.attempts_label.config(text=f"Неудачные попытки: {self.fail_count}");
+                self.fail_count += 1
+                self.total_failed_identifications += 1
+                self.attempts_label.config(text=f"Неудачные попытки: {self.fail_count}")
+                self.total_fail_label.config(text=f"Всего неудачных идентификаций: {self.total_failed_identifications}")
                 self.start_time = time.time()
                 if self.fail_count > 3:
                     self._show_access_denied()
