@@ -22,6 +22,7 @@ logging.basicConfig(
 # Папка для хранения эталонных лиц
 KNOWN_FACES_DIR = 'known_faces'
 DEPARTMENTS_FILE = 'departments.txt'
+ENVIRONMENT_FILE = 'environment.txt'
 os.makedirs(KNOWN_FACES_DIR, exist_ok=True)
 
 DEPARTMENT_OPTIONS = {
@@ -77,10 +78,31 @@ def save_department_mapping(mapping):
             f.write(f"{name};{dept}\n")
 
 
+def load_environments():
+    envs = []
+    if os.path.exists(ENVIRONMENT_FILE):
+        with open(ENVIRONMENT_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split(";")
+                if len(parts) >= 3:
+                    envs.append({"name": parts[0], "location": parts[1], "image": parts[2]})
+    return envs
+
+
+def save_environments(envs):
+    with open(ENVIRONMENT_FILE, "w", encoding="utf-8") as f:
+        for env in envs:
+            f.write(f"{env['name']};{env['location']};{env['image']}\n")
+
+
+
+
 class FaceRecognitionApp:
     def __init__(self):
         self.known_face_encodings, self.known_face_names = load_known_faces()
         self.employee_depts = load_department_mapping()
+        self.environments = load_environments()
+        self.env_selected_image = ''
         self.process_frame = True
         self.cap = None
         self.start_time = None
@@ -96,7 +118,9 @@ class FaceRecognitionApp:
         # Фреймы ролей
         self.frame_role = ttk.Frame(self.root)
         self.frame_employee = ttk.Frame(self.root)
+        self.frame_admin_choice = ttk.Frame(self.root)
         self.frame_admin = ttk.Frame(self.root)
+        self.frame_admin_env = ttk.Frame(self.root)
         self.frame_security = ttk.Frame(self.root)
 
         self.departments_map = DEPARTMENT_OPTIONS
@@ -107,7 +131,9 @@ class FaceRecognitionApp:
         # Построение интерфейсов
         self._build_role_frame()
         self._build_employee_frame()
+        self._build_admin_choice_frame()
         self._build_admin_frame()
+        self._build_admin_env_frame()
         self._build_security_frame()
 
         self._show_frame(self.frame_role)
@@ -152,7 +178,7 @@ class FaceRecognitionApp:
 
         green1, green2 = (46, 204, 113), (39, 174, 96)
         btn('Сотрудник', lambda: self._show_frame(self.frame_employee), 0.4, green1, green2)
-        btn('Администратор', lambda: (self._refresh_catalog(), self._show_frame(self.frame_admin)), 0.55, green1,
+        btn('Администратор', lambda: self._show_frame(self.frame_admin_choice), 0.55, green1,
             green2)
         btn('Служба безопасности', lambda: self._show_frame(self.frame_security), 0.7, (52, 152, 219), (41, 128, 185))
         btn('Завершить', self.on_closing, 0.85, (231, 76, 60), (192, 57, 43))
@@ -172,12 +198,22 @@ class FaceRecognitionApp:
         self.status_label = ttk.Label(f, text="Камера не запущена", style='Status.TLabel')
         self.status_label.pack(pady=10)
 
+    def _build_admin_choice_frame(self):
+        f = self.frame_admin_choice
+        nav = ttk.Frame(f)
+        nav.pack(fill='x')
+        ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side='left', padx=10, pady=10)
+        ttk.Button(nav, text="Завершить", command=self.on_closing).pack(side='right', padx=10, pady=10)
+        ttk.Label(f, text="Панель администратора", style='Title.TLabel').pack(pady=20)
+        ttk.Button(f, text="Зарегистрировать сотрудника", command=lambda: self._show_frame(self.frame_admin)).pack(pady=10)
+        ttk.Button(f, text="Настроить окружение", command=lambda: self._show_frame(self.frame_admin_env)).pack(pady=10)
+
     def _build_admin_frame(self):
         f = self.frame_admin
         nav = ttk.Frame(f);
         nav.pack(fill='x')
-        ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side='left', padx=10,
-                                                                                              pady=10)
+        ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_admin_choice)).pack(side='left', padx=10,
+                      pady=10)
         ttk.Button(nav, text="Завершить", command=self.on_closing).pack(side='right', padx=10, pady=10)
         ttk.Label(f, text="Управление сотрудниками", style='Title.TLabel').pack(pady=10)
         frm = ttk.Frame(f);
@@ -208,6 +244,40 @@ class FaceRecognitionApp:
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
         self.canvas.pack(side='left', fill='both', expand=True)
         self.scrollbar.pack(side='right', fill='y')
+
+    def _build_admin_env_frame(self):
+        f = self.frame_admin_env
+        nav = ttk.Frame(f)
+        nav.pack(fill='x')
+        ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_admin_choice)).pack(side='left', padx=10, pady=10)
+        ttk.Button(nav, text="Завершить", command=self.on_closing).pack(side='right', padx=10, pady=10)
+        ttk.Label(f, text="Настройка окружения", style='Title.TLabel').pack(pady=10)
+        frm = ttk.Frame(f)
+        frm.pack(pady=10)
+        ttk.Label(frm, text="Название помещения:").grid(row=0, column=0, sticky='e')
+        self.env_name_entry = ttk.Entry(frm, width=30)
+        self.env_name_entry.grid(row=0, column=1, sticky='w')
+        ttk.Label(frm, text="Местоположение:").grid(row=1, column=0, sticky='e')
+        self.env_loc_entry = ttk.Entry(frm, width=30)
+        self.env_loc_entry.grid(row=1, column=1, sticky='w')
+        ttk.Label(frm, text="Изображение:").grid(row=2, column=0, sticky='e')
+        ttk.Button(frm, text="Выбрать файл", command=self._choose_env_image).grid(row=2, column=1, sticky='w')
+        self.env_image_label = ttk.Label(frm, text="")
+        self.env_image_label.grid(row=3, column=0, columnspan=2)
+        ttk.Button(f, text="Добавить помещение", command=self._add_environment).pack(pady=10)
+        self.env_status = ttk.Label(f, text="", style='Status.TLabel')
+        self.env_status.pack()
+
+        cat = tk.Frame(f, bg='#2c3e50')
+        cat.pack(expand=True, fill='both', padx=10, pady=10)
+        self.env_canvas = tk.Canvas(cat, bg='#2c3e50', highlightthickness=0)
+        self.env_scrollbar = ttk.Scrollbar(cat, orient='vertical', command=self.env_canvas.yview)
+        self.env_inner = ttk.Frame(self.env_canvas)
+        self.env_inner.bind('<Configure>', lambda e: self.env_canvas.configure(scrollregion=self.env_canvas.bbox("all")))
+        self.env_canvas.create_window((0, 0), window=self.env_inner, anchor='nw')
+        self.env_canvas.configure(yscrollcommand=self.env_scrollbar.set)
+        self.env_canvas.pack(side='left', fill='both', expand=True)
+        self.env_scrollbar.pack(side='right', fill='y')
 
     def _update_dept_menu(self, *_):
         menu = self.dept_menu['menu']
@@ -247,7 +317,8 @@ class FaceRecognitionApp:
         self.log_text.insert(tk.END, data)
 
     def _show_frame(self, target):
-        for frm in (self.frame_role, self.frame_employee, self.frame_admin, self.frame_security):
+        for frm in (self.frame_role, self.frame_employee, self.frame_admin_choice, self.frame_admin,
+                     self.frame_admin_env, self.frame_security):
             frm.pack_forget()
         target.pack(expand=True, fill='both')
         self.root.update_idletasks()
@@ -258,7 +329,14 @@ class FaceRecognitionApp:
         else:
             self._stop_camera()
         if target == self.frame_admin:
-            self._refresh_catalog();
+            self._refresh_catalog()
+            return
+        if target == self.frame_admin_env:
+            self.env_name_entry.delete(0, 'end')
+            self.env_loc_entry.delete(0, 'end')
+            self.env_image_label.config(text="")
+            self.env_selected_image = ''
+            self._refresh_env_catalog()
             return
         if target == self.frame_security:
             self._load_logs();
@@ -269,6 +347,28 @@ class FaceRecognitionApp:
         if path:
             self.selected_file = path
             self.admin_status.config(text=os.path.basename(path))
+
+    def _choose_env_image(self):
+        path = filedialog.askopenfilename(filetypes=[('Image Files', ('*.jpg', '*.png'))])
+        if path:
+            self.env_selected_image = path
+            self.env_image_label.config(text=os.path.basename(path))
+
+    def _add_environment(self):
+        name = self.env_name_entry.get().strip()
+        loc = self.env_loc_entry.get().strip()
+        img = self.env_selected_image
+        if not name or not loc or not img:
+            messagebox.showwarning("Ошибка", "Заполните все поля и выберите изображение")
+            return
+        self.environments.append({'name': name, 'location': loc, 'image': img})
+        save_environments(self.environments)
+        self.env_status.config(text="Помещение добавлено")
+        self.env_name_entry.delete(0, 'end')
+        self.env_loc_entry.delete(0, 'end')
+        self.env_selected_image = ''
+        self.env_image_label.config(text="")
+        self._refresh_env_catalog()
 
     def _upload_employee(self):
         name = self.name_entry.get().strip()
@@ -288,6 +388,30 @@ class FaceRecognitionApp:
         self.name_entry.delete(0, 'end')
         self.selected_file = None
         self._refresh_catalog()
+
+    def _refresh_env_catalog(self):
+        for w in self.env_inner.winfo_children():
+            w.destroy()
+        for env in self.environments:
+            rec = ttk.Frame(self.env_inner, padding=5)
+            rec.pack(fill='x', pady=5)
+            try:
+                img = Image.open(env['image'])
+                img.thumbnail((64, 64))
+                ph = ImageTk.PhotoImage(img)
+                lbl = tk.Label(rec, image=ph)
+                lbl.image = ph
+                lbl.pack(side='left', padx=5)
+            except Exception:
+                ttk.Label(rec, text="[Нет изображения]").pack(side='left', padx=5)
+            ttk.Label(rec, text=f"{env['name']} ({env['location']})", style='Status.TLabel').pack(side='left', padx=10)
+            ttk.Button(rec, text="Удалить", command=lambda e=env: self._delete_environment(e)).pack(side='right', padx=5)
+
+    def _delete_environment(self, env):
+        if env in self.environments:
+            self.environments.remove(env)
+            save_environments(self.environments)
+            self._refresh_env_catalog()
 
     def _refresh_catalog(self):
         for w in self.inner.winfo_children():
