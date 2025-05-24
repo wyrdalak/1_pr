@@ -59,7 +59,8 @@ def load_known_faces():
         photo_url = API_HOST + emp['photo_url']
         r = requests.get(photo_url, timeout=5)
         r.raise_for_status()
-        img = face_recognition.load_image_file(io.BytesIO(r.content))
+        img_pil = Image.open(io.BytesIO(r.content)).convert('RGB')
+        img = np.array(img_pil)
         encs = face_recognition.face_encodings(img)
         if encs:
             known_encodings.append(encs[0])
@@ -145,6 +146,20 @@ class FaceRecognitionApp:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.root.mainloop()
 
+    def _gradient_button(self, parent, text, cmd, width=180, height=50,
+                         c1=(52, 152, 219), c2=(41, 128, 185)):
+        btn = tk.Canvas(parent, width=width, height=height, highlightthickness=0)
+        for x in range(width):
+            r = int(c1[0] + (c2[0] - c1[0]) * x / width)
+            g = int(c1[1] + (c2[1] - c1[1]) * x / width)
+            b = int(c1[2] + (c2[2] - c1[2]) * x / width)
+            btn.create_line(x, 0, x, height,
+                            fill=f"#{r:02x}{g:02x}{b:02x}")
+        btn.create_text(width/2, height/2, text=text, fill='white',
+                        font=('Arial', 18))
+        btn.bind('<Button-1>', lambda e: cmd())
+        return btn
+
     def _setup_style(self):
         s = self.style
         s.theme_use('clam')
@@ -190,18 +205,38 @@ class FaceRecognitionApp:
 
     def _build_employee_frame(self):
         f = self.frame_employee
-        self.emp_back_btn = ttk.Button(f, text="Назад", command=lambda: self._show_frame(self.frame_role))
-        self.emp_back_btn.pack(anchor='nw', padx=10, pady=10)
-        self.emp_exit_btn = ttk.Button(f, text="Завершить", command=self.on_closing)
-        self.emp_exit_btn.pack(anchor='ne', padx=10, pady=10)
+        w, h = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        self.emp_canvas = tk.Canvas(f, width=w, height=h, highlightthickness=0)
+        for i in range(h):
+            r = int(44 + (52 - 44) * i / h)
+            g = int(62 + (152 - 62) * i / h)
+            b = int(80 + (219 - 80) * i / h)
+            self.emp_canvas.create_line(0, i, w, i, fill=f"#{r:02x}{g:02x}{b:02x}")
+        self.emp_canvas.pack(expand=True, fill='both')
+
+        content = tk.Frame(self.emp_canvas, bg='#2c3e50')
+        self.emp_canvas.create_window(w/2, h/2, window=content, anchor='center')
+
+        nav = tk.Frame(content, bg='#2c3e50')
+        nav.pack(fill='x')
+        self.emp_back_btn = self._gradient_button(
+            nav, 'Назад', lambda: self._show_frame(self.frame_role),
+            c1=(46, 204, 113), c2=(39, 174, 96))
+        self.emp_back_btn.pack(side='left', padx=10, pady=10)
+        self.emp_exit_btn = self._gradient_button(
+            nav, 'Завершить', self.on_closing,
+            c1=(231, 76, 60), c2=(192, 57, 43))
+        self.emp_exit_btn.pack(side='right', padx=10, pady=10)
         self.emp_back_pack = self.emp_back_btn.pack_info()
         self.emp_exit_pack = self.emp_exit_btn.pack_info()
-        self.attempts_label = ttk.Label(f, text="Неудачные попытки: 0", style='Attempts.TLabel')
-        self.attempts_label.pack(side='left', padx=20, pady=20)
-        self.video_label = tk.Label(f, bg='#34495e')
-        self.video_label.pack(side='left', expand=True, fill='both')
-        self.status_label = ttk.Label(f, text="Камера не запущена", style='Status.TLabel')
-        self.status_label.pack(pady=10)
+
+        ttk.Label(content, text='Предоставление доступа', style='Title.TLabel').pack(pady=10)
+        self.video_label = tk.Label(content, bg='#34495e')
+        self.video_label.pack(expand=True, fill='both', padx=20, pady=10)
+        self.status_label = ttk.Label(content, text='Камера не запущена', style='Status.TLabel')
+        self.status_label.pack(pady=5)
+        self.attempts_label = ttk.Label(content, text='Неудачные попытки: 0', style='Attempts.TLabel')
+        self.attempts_label.pack(pady=(0, 10))
 
     def _build_admin_choice_frame(self):
         f = self.frame_admin_choice
