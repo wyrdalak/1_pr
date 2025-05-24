@@ -179,6 +179,23 @@ class FaceRecognitionApp:
         canvas.tk.call('lower', canvas._w)
         return canvas
 
+    def _create_gradient_button(self, parent, text, command,
+                                width=200, height=60,
+                                c1=(46, 204, 113), c2=(39, 174, 96),
+                                font=None):
+        """Return a canvas widget drawn like a green gradient button."""
+        if font is None:
+            font = tkfont.Font(family='Helvetica', size=18)
+        c = tk.Canvas(parent, width=width, height=height, highlightthickness=0)
+        for x in range(width):
+            cr = int(c1[0] + (c2[0] - c1[0]) * x / width)
+            cg = int(c1[1] + (c2[1] - c1[1]) * x / width)
+            cb = int(c1[2] + (c2[2] - c1[2]) * x / width)
+            c.create_line(x, 0, x, height, fill=f"#{cr:02x}{cg:02x}{cb:02x}")
+        c.create_text(width / 2, height / 2, text=text, font=font, fill='white')
+        c.bind('<Button-1>', lambda e: command())
+        return c
+
     def _build_role_frame(self):
         f = self.frame_role
         f.pack(expand=True, fill='both')
@@ -218,14 +235,18 @@ class FaceRecognitionApp:
         self._apply_gradient_background(f)
         nav = ttk.Frame(f)
         nav.pack(fill='x')
-        self.emp_back_btn = ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role))
+        self.emp_back_btn = self._create_gradient_button(
+            nav, "Назад", lambda: self._show_frame(self.frame_role), width=170, height=50)
         self.emp_back_btn.pack(side='left', padx=10, pady=10)
-        self.emp_exit_btn = ttk.Button(nav, text="Завершить", command=self.on_closing)
+        self.emp_exit_btn = self._create_gradient_button(
+            nav, "Завершить", self.on_closing, width=170, height=50)
         self.emp_exit_btn.pack(side='right', padx=10, pady=10)
         self.emp_back_pack = self.emp_back_btn.pack_info()
         self.emp_exit_pack = self.emp_exit_btn.pack_info()
-        self.start_button = ttk.Button(f, text="Начать идентификацию", command=self._on_start_identification)
-        self.start_button.pack(expand=True, fill='both')
+        self.start_button = self._create_gradient_button(
+            f, "Начать идентификацию", self._on_start_identification,
+            width=300, height=80)
+        self.start_button.pack(expand=True)
 
         self.cam_box = ttk.LabelFrame(f, text="Камера", style='Cam.TLabelframe')
         self.video_label = tk.Label(self.cam_box, bg='#34495e', bd=2, relief='sunken')
@@ -333,7 +354,7 @@ class FaceRecognitionApp:
         self.attempts_label.pack_forget()
         self.status_label.pack_forget()
         if not self.start_button.winfo_ismapped():
-            self.start_button.pack(expand=True, fill='both')
+            self.start_button.pack(expand=True)
         self.attempts_label.config(text="Неудачные попытки: 0")
         self.status_label.config(text="Камера не запущена")
 
