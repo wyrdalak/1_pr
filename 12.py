@@ -10,6 +10,7 @@ from PIL import Image, ImageTk
 import shutil
 import logging
 import time
+import datetime
 
 # Настройка логирования в файл
 logging.basicConfig(
@@ -160,21 +161,90 @@ class FaceRecognitionApp:
 
     def _build_security_frame(self):
         f = self.frame_security
-        nav = ttk.Frame(f);
-        nav.pack(fill='x')
-        ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side='left', padx=10,
-                                                                                              pady=10)
-        ttk.Label(f, text="Служба безопасности - Логи доступа", style='Title.TLabel').pack(pady=10)
-        self.log_text = scrolledtext.ScrolledText(f, width=100, height=30, font=('Courier', 12))
-        self.log_text.pack(expand=True, fill='both', padx=20, pady=10)
+        nav = ttk.Frame(f)
+        nav.pack(fill="x")
+        ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side="left", padx=10,
+                      pady=10)
+
+        self.sort_by_var = tk.StringVar(value="Время")
+        ttk.Label(nav, text="Сортировать по:").pack(side="left", padx=5)
+        ttk.OptionMenu(nav, self.sort_by_var, "Время", "Время", "ФИО", "Действие",
+                       command=lambda _=None: self._load_logs()).pack(side="left")
+
+        self.sort_order_var = tk.StringVar(value="По убыванию")
+        ttk.Label(nav, text="Порядок:").pack(side="left", padx=5)
+        ttk.OptionMenu(nav, self.sort_order_var, "По убыванию", "По убыванию", "По возрастанию",
+                       command=lambda _=None: self._load_logs()).pack(side="left")
+
+        self.start_var = tk.StringVar()
+        self.end_var = tk.StringVar()
+        ttk.Label(nav, text="От (YYYY-MM-DD HH:MM):").pack(side="left", padx=5)
+        ttk.Entry(nav, textvariable=self.start_var, width=17).pack(side="left")
+        ttk.Label(nav, text="До (YYYY-MM-DD HH:MM):").pack(side="left", padx=5)
+        ttk.Entry(nav, textvariable=self.end_var, width=17).pack(side="left")
+
+        ttk.Label(f, text="Служба безопасности - Логи доступа", style="Title.TLabel").pack(pady=10)
+        self.log_text = scrolledtext.ScrolledText(f, width=100, height=30, font=("Courier", 12))
+        self.log_text.pack(expand=True, fill="both", padx=20, pady=10)
         ttk.Button(f, text="Обновить", command=self._load_logs).pack(pady=5)
 
+    def _parse_log_line(self, line):
+        parts = line.strip().split()
+        if len(parts) < 3:
+            return None
+        ts = " ".join(parts[:2])
+        try:
+            dt_obj = datetime.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return None
+        message = " ".join(parts[3:])
+        name = ""
+        action = message
+        if message.startswith("Access granted for"):
+            action = "Access granted"
+            name = message[len("Access granted for"):].strip()
+        elif message.startswith("Failed authentication"):
+            action = "Failed authentication"
+        return {"original": line, "dt": dt_obj, "name": name, "action": action}
+
     def _load_logs(self):
+        entries = []
+        start_str = self.start_var.get().strip()
+        end_str = self.end_var.get().strip()
+        start_dt = end_dt = None
+        if start_str:
+            try:
+                start_dt = datetime.datetime.strptime(start_str, "%Y-%m-%d %H:%M")
+            except ValueError:
+                start_dt = None
+        if end_str:
+            try:
+                end_dt = datetime.datetime.strptime(end_str, "%Y-%m-%d %H:%M")
+            except ValueError:
+                end_dt = None
         try:
             with open('access.log', 'r') as file:
-                data = file.read()
+                for line in file:
+                    p = self._parse_log_line(line)
+                    if not p:
+                        continue
+                    if start_dt and p["dt"] < start_dt:
+                        continue
+                    if end_dt and p["dt"] > end_dt:
+                        continue
+                    entries.append(p)
         except FileNotFoundError:
-            data = 'Логов пока нет.'
+            entries = []
+
+        key_map = {
+            "Время": lambda x: x["dt"],
+            "ФИО": lambda x: x["name"],
+            "Действие": lambda x: x["action"],
+        }
+        key_func = key_map.get(self.sort_by_var.get(), lambda x: x["dt"])
+        reverse = self.sort_order_var.get() == "По убыванию"
+        entries.sort(key=key_func, reverse=reverse)
+        data = "".join([e["original"] for e in entries]) or 'Логов пока нет.'
         self.log_text.delete('1.0', tk.END)
         self.log_text.insert(tk.END, data)
 
