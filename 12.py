@@ -13,7 +13,7 @@ import time
 import requests, io, datetime
 
 # Адрес API вашего сервера
-API_HOST = 'http://127.0.0.1:5001'     # или 'http://<IP_СЕРВЕРА>:5001'
+API_HOST = 'http://192.168.0.111:5001'     # или 'http://<IP_СЕРВЕРА>:5001'
 API_URL  = API_HOST + '/api'
 # Настройка логирования в файл
 logging.basicConfig(
