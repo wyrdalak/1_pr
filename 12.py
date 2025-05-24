@@ -252,8 +252,10 @@ class FaceRecognitionApp:
         self.cam_box = ttk.LabelFrame(f, text="Камера", style='Cam.TLabelframe')
         self.video_label = tk.Label(self.cam_box, bg='#34495e', bd=2, relief='sunken')
         self.video_label.pack(expand=True, fill='both')
-        self.attempts_label = ttk.Label(f, text="Неудачные попытки: 0", style='Attempts.TLabel')
-        self.total_fail_label = ttk.Label(f, text="Всего неудачных идентификаций: 0", style='Attempts.TLabel')
+        self.attempts_label = ttk.Label(self.cam_box, text="Неудачные попытки: 0", style='Attempts.TLabel')
+        self.attempts_label.pack(pady=5)
+        self.total_fail_label = ttk.Label(self.cam_box, text="Всего неудачных идентификаций: 0", style='Attempts.TLabel')
+        self.total_fail_label.pack(pady=5)
         self.status_label = ttk.Label(f, text="Камера не запущена", style='Status.TLabel')
 
     def _build_admin_choice_frame(self):
@@ -353,8 +355,6 @@ class FaceRecognitionApp:
         """Подготовить экран сотрудника для начала идентификации."""
         self._stop_camera()
         self.cam_box.pack_forget()
-        self.attempts_label.pack_forget()
-        self.total_fail_label.pack_forget()
         self.status_label.pack_forget()
         if not self.start_button.winfo_ismapped():
             self.start_button.pack(expand=True)
@@ -364,8 +364,6 @@ class FaceRecognitionApp:
     def _on_start_identification(self):
         self.start_button.pack_forget()
         self.cam_box.pack(expand=True, fill='both', padx=20, pady=10)
-        self.attempts_label.pack(pady=5)
-        self.total_fail_label.pack(pady=5)
         self.status_label.pack(pady=5)
         self._start_employee_cam()
 
