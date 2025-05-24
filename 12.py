@@ -78,13 +78,21 @@ def save_department_mapping(mapping):
             f.write(f"{name};{dept}\n")
 
 
-def load_environment():
+def load_environments():
+    envs = []
     if os.path.exists(ENVIRONMENT_FILE):
         with open(ENVIRONMENT_FILE, "r", encoding="utf-8") as f:
-            parts = f.read().split(";")
-            if len(parts) >= 3:
-                return {"name": parts[0], "location": parts[1], "image": parts[2]}
-    return {"name": "", "location": "", "image": ""}
+            for line in f:
+                parts = line.strip().split(";")
+                if len(parts) >= 3:
+                    envs.append({"name": parts[0], "location": parts[1], "image": parts[2]})
+    return envs
+
+
+def save_environments(envs):
+    with open(ENVIRONMENT_FILE, "w", encoding="utf-8") as f:
+        for env in envs:
+            f.write(f"{env['name']};{env['location']};{env['image']}\n")
 
 
 
@@ -93,7 +101,8 @@ class FaceRecognitionApp:
     def __init__(self):
         self.known_face_encodings, self.known_face_names = load_known_faces()
         self.employee_depts = load_department_mapping()
-        self.environment = load_environment()
+        self.environments = load_environments()
+        self.env_selected_image = ''
         self.process_frame = True
         self.cap = None
         self.start_time = None
@@ -255,9 +264,20 @@ class FaceRecognitionApp:
         ttk.Button(frm, text="Выбрать файл", command=self._choose_env_image).grid(row=2, column=1, sticky='w')
         self.env_image_label = ttk.Label(frm, text="")
         self.env_image_label.grid(row=3, column=0, columnspan=2)
-        ttk.Button(f, text="Сохранить", command=self._save_environment).pack(pady=10)
+        ttk.Button(f, text="Добавить помещение", command=self._add_environment).pack(pady=10)
         self.env_status = ttk.Label(f, text="", style='Status.TLabel')
         self.env_status.pack()
+
+        cat = tk.Frame(f, bg='#2c3e50')
+        cat.pack(expand=True, fill='both', padx=10, pady=10)
+        self.env_canvas = tk.Canvas(cat, bg='#2c3e50', highlightthickness=0)
+        self.env_scrollbar = ttk.Scrollbar(cat, orient='vertical', command=self.env_canvas.yview)
+        self.env_inner = ttk.Frame(self.env_canvas)
+        self.env_inner.bind('<Configure>', lambda e: self.env_canvas.configure(scrollregion=self.env_canvas.bbox("all")))
+        self.env_canvas.create_window((0, 0), window=self.env_inner, anchor='nw')
+        self.env_canvas.configure(yscrollcommand=self.env_scrollbar.set)
+        self.env_canvas.pack(side='left', fill='both', expand=True)
+        self.env_scrollbar.pack(side='right', fill='y')
 
     def _update_dept_menu(self, *_):
         menu = self.dept_menu['menu']
@@ -313,10 +333,10 @@ class FaceRecognitionApp:
             return
         if target == self.frame_admin_env:
             self.env_name_entry.delete(0, 'end')
-            self.env_name_entry.insert(0, self.environment.get('name', ''))
             self.env_loc_entry.delete(0, 'end')
-            self.env_loc_entry.insert(0, self.environment.get('location', ''))
-            self.env_image_label.config(text=os.path.basename(self.environment.get('image', '')))
+            self.env_image_label.config(text="")
+            self.env_selected_image = ''
+            self._refresh_env_catalog()
             return
         if target == self.frame_security:
             self._load_logs();
@@ -331,20 +351,24 @@ class FaceRecognitionApp:
     def _choose_env_image(self):
         path = filedialog.askopenfilename(filetypes=[('Image Files', ('*.jpg', '*.png'))])
         if path:
-            self.environment['image'] = path
+            self.env_selected_image = path
             self.env_image_label.config(text=os.path.basename(path))
 
-    def _save_environment(self):
+    def _add_environment(self):
         name = self.env_name_entry.get().strip()
         loc = self.env_loc_entry.get().strip()
-        img = self.environment.get('image', '')
+        img = self.env_selected_image
         if not name or not loc or not img:
             messagebox.showwarning("Ошибка", "Заполните все поля и выберите изображение")
             return
-        self.environment = {'name': name, 'location': loc, 'image': img}
-        with open(ENVIRONMENT_FILE, 'w', encoding='utf-8') as f:
-            f.write(f"{name};{loc};{img}")
-        self.env_status.config(text="Окружение сохранено")
+        self.environments.append({'name': name, 'location': loc, 'image': img})
+        save_environments(self.environments)
+        self.env_status.config(text="Помещение добавлено")
+        self.env_name_entry.delete(0, 'end')
+        self.env_loc_entry.delete(0, 'end')
+        self.env_selected_image = ''
+        self.env_image_label.config(text="")
+        self._refresh_env_catalog()
 
     def _upload_employee(self):
         name = self.name_entry.get().strip()
@@ -364,6 +388,30 @@ class FaceRecognitionApp:
         self.name_entry.delete(0, 'end')
         self.selected_file = None
         self._refresh_catalog()
+
+    def _refresh_env_catalog(self):
+        for w in self.env_inner.winfo_children():
+            w.destroy()
+        for env in self.environments:
+            rec = ttk.Frame(self.env_inner, padding=5)
+            rec.pack(fill='x', pady=5)
+            try:
+                img = Image.open(env['image'])
+                img.thumbnail((64, 64))
+                ph = ImageTk.PhotoImage(img)
+                lbl = tk.Label(rec, image=ph)
+                lbl.image = ph
+                lbl.pack(side='left', padx=5)
+            except Exception:
+                ttk.Label(rec, text="[Нет изображения]").pack(side='left', padx=5)
+            ttk.Label(rec, text=f"{env['name']} ({env['location']})", style='Status.TLabel').pack(side='left', padx=10)
+            ttk.Button(rec, text="Удалить", command=lambda e=env: self._delete_environment(e)).pack(side='right', padx=5)
+
+    def _delete_environment(self, env):
+        if env in self.environments:
+            self.environments.remove(env)
+            save_environments(self.environments)
+            self._refresh_env_catalog()
 
     def _refresh_catalog(self):
         for w in self.inner.winfo_children():
