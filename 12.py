@@ -93,14 +93,19 @@ def load_environments():
             for line in f:
                 parts = line.strip().split(";")
                 if len(parts) >= 3:
-                    envs.append({"name": parts[0], "location": parts[1], "image": parts[2]})
+                    env = {"name": parts[0], "location": parts[1], "image": parts[2]}
+                    if len(parts) >= 4:
+                        env["id"] = parts[3]
+                    envs.append(env)
     return envs
 
 
 def save_environments(envs):
     with open(ENVIRONMENT_FILE, "w", encoding="utf-8") as f:
         for env in envs:
-            f.write(f"{env['name']};{env['location']};{env['image']}\n")
+            img = env.get('image') or env.get('image_url', '')
+            eid = env.get('id', '')
+            f.write(f"{env['name']};{env['location']};{img};{eid}\n")
 
 
 
@@ -385,7 +390,14 @@ class FaceRecognitionApp:
             # env = {'id':..., 'name': name, 'location': loc, 'image_url': ...}
 
             # 4) Обновляем локальный список и интерфейс
-            self.environments.append(env)
+            env_rec = {
+                'id': env.get('id'),
+                'name': env['name'],
+                'location': env['location'],
+                'image': API_HOST + env['image_url'] if env['image_url'].startswith('/') else env['image_url']
+            }
+            self.environments.append(env_rec)
+            save_environments(self.environments)
             self.env_status.config(text="Помещение добавлено на сервер")
             # Сброс полей формы
             self.env_name_entry.delete(0, 'end')
@@ -431,7 +443,13 @@ class FaceRecognitionApp:
             rec = ttk.Frame(self.env_inner, padding=5)
             rec.pack(fill='x', pady=5)
             try:
-                img = Image.open(env['image'])
+                img_path = env.get('image', '')
+                if img_path.startswith('http'):
+                    r = requests.get(img_path, timeout=5)
+                    r.raise_for_status()
+                    img = Image.open(io.BytesIO(r.content))
+                else:
+                    img = Image.open(img_path)
                 img.thumbnail((64, 64))
                 ph = ImageTk.PhotoImage(img)
                 lbl = tk.Label(rec, image=ph)
@@ -444,6 +462,11 @@ class FaceRecognitionApp:
 
     def _delete_environment(self, env):
         if env in self.environments:
+            if env.get('id'):
+                try:
+                    requests.delete(f"{API_URL}/environments/{env['id']}")
+                except Exception as e:
+                    print("Не удалось удалить помещение на сервере:", e)
             self.environments.remove(env)
             save_environments(self.environments)
             self._refresh_env_catalog()
