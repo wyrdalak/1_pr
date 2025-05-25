@@ -13,6 +13,7 @@ import time
 import requests, io, datetime
 import json
 import math
+import threading
 
 # Адрес API вашего сервера
 API_HOST = 'http://192.168.0.111:5001'     # или 'http://<IP_СЕРВЕРА>:5001'
@@ -776,26 +777,38 @@ class FaceRecognitionApp:
         tk.Button(btn_frame, text='Сохранить зоны', command=self._save_zones).pack(side='left', padx=5)
 
     def _load_all_logs(self):
-        try:
-            resp = requests.get(f"{API_URL}/logs", params={'order': 'desc'}, timeout=5)
-            resp.raise_for_status()
-            lines = resp.json()
-            data = "\n".join(lines)
-        except Exception as e:
-            data = f"Не удалось получить логи: {e}"
+        """Fetch all logs asynchronously to avoid UI freeze."""
+        def worker():
+            try:
+                resp = requests.get(f"{API_URL}/logs", params={'order': 'desc'}, timeout=5)
+                resp.raise_for_status()
+                lines = resp.json()
+                data = "\n".join(lines)
+            except Exception as e:
+                data = f"Не удалось получить логи: {e}"
+            self.root.after(0, lambda d=data: self._update_general_logs(d))
 
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _update_general_logs(self, data: str):
         self.general_log_text.delete('1.0', tk.END)
         self.general_log_text.insert('1.0', data)
 
     def _load_warning_logs(self):
-        try:
-            resp = requests.get(f"{API_URL}/logs", params={'order': 'desc'}, timeout=5)
-            resp.raise_for_status()
-            lines = [l for l in resp.json() if 'WARNING' in l]
-            data = "\n".join(lines)
-        except Exception as e:
-            data = f"Не удалось получить логи: {e}"
+        """Fetch warning logs asynchronously."""
+        def worker():
+            try:
+                resp = requests.get(f"{API_URL}/logs", params={'order': 'desc'}, timeout=5)
+                resp.raise_for_status()
+                lines = [l for l in resp.json() if 'WARNING' in l]
+                data = "\n".join(lines)
+            except Exception as e:
+                data = f"Не удалось получить логи: {e}"
+            self.root.after(0, lambda d=data: self._update_warning_logs(d))
 
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _update_warning_logs(self, data: str):
         self.warning_text.delete('1.0', tk.END)
         self.warning_text.insert('1.0', data)
 
@@ -1472,7 +1485,7 @@ class FaceRecognitionApp:
                 cam_idx = 0
         if self.cap:
             self.cap.release()
-        self.cap = cv2.VideoCapture(0)
+        self.cap = cv2.VideoCapture(cam_idx)
         self._update_security_frame()
     def _send_log(self, level: str, msg: str):
         """Логирует событие и отправляет его на сервер."""
