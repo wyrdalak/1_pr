@@ -60,6 +60,11 @@ if not os.path.exists(ASSIGNMENTS_FILE):
 # Увеличен для более удобной работы с зонами
 ENV_IMAGE_SIZE = (800, 600)
 
+# Высоты окон в интерфейсе службы безопасности
+SEC_PANE_MIN_HEIGHT = 300
+SEC_PANE_MAX_HEIGHT = 600
+SEC_LOGS_HEIGHT = 150
+
 DEPARTMENT_OPTIONS = {
     'Блок по бизнес приложениям': [
         'Департамент систем поддержки эксплуатации АЭС',
@@ -575,29 +580,44 @@ class FaceRecognitionApp:
         nav.pack(fill="x")
         ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side="left", padx=10, pady=10)
         ttk.Button(nav, text="Завершить", command=self.on_closing).pack(side="right", padx=10, pady=10)
+        self.sec_nav = nav
 
-        content = tk.Frame(f, bg='#2c3e50')
-        content.pack(expand=True, fill='both')
+        paned = tk.PanedWindow(f, orient='horizontal', sashwidth=5, bg='#2c3e50')
+        paned.pack(side='top', expand=True, fill='both')
+        self.sec_paned = paned
 
-        left = tk.Frame(content, bg='#2c3e50', width=420)
-        left.pack(side='left', fill='y', padx=10, pady=10)
+        left = tk.Frame(paned, bg='#2c3e50', height=SEC_PANE_MAX_HEIGHT)
         left.pack_propagate(False)
         ttk.Label(left, text='Камера', style='Title.TLabel').pack(pady=5)
-        self.security_video = tk.Label(left, bg='#34495e', bd=2, relief='sunken',
-                                       width=600, height=500)
-        self.security_video.pack(side='top', pady=5)
+        self.security_video = tk.Label(left, bg='#34495e', bd=2, relief='sunken')
+        self.security_video.pack(expand=True, fill='both', padx=10, pady=10)
+        paned.add(left, minsize=200)
+        self.sec_left = left
 
-        right = tk.Frame(content, bg='#2c3e50')
-        right.pack(side='left', expand=True, fill='both', padx=10, pady=10)
+        right = tk.Frame(paned, bg='#2c3e50', height=SEC_PANE_MAX_HEIGHT)
+        right.pack_propagate(False)
         ttk.Label(right, text='Нарушения', style='Title.TLabel').pack(pady=5)
         self.warning_text = scrolledtext.ScrolledText(right, width=50, font=("Courier", 12))
-        self.warning_text.pack(expand=True, fill='both')
+        self.warning_text.pack(expand=True, fill='both', padx=10, pady=10)
+        paned.add(right, minsize=200)
+        self.sec_right = right
 
-        bottom = tk.Frame(f, bg='#2c3e50')
-        bottom.pack(fill='both', padx=10, pady=(0,10))
+        bottom = tk.Frame(f, bg='#2c3e50', height=SEC_LOGS_HEIGHT)
+        bottom.pack(side='bottom', fill='x', padx=10, pady=(0,10))
+        bottom.pack_propagate(False)
         ttk.Label(bottom, text='Общие логи', style='Title.TLabel').pack(pady=5)
         self.general_log_text = scrolledtext.ScrolledText(bottom, height=10, font=("Courier", 12))
         self.general_log_text.pack(expand=True, fill='both')
+        self.sec_bottom = bottom
+
+        f.bind('<Configure>', self._limit_security_heights)
+
+        self.root.update_idletasks()
+        min_h = self.sec_nav.winfo_height() + SEC_LOGS_HEIGHT + SEC_PANE_MIN_HEIGHT
+        max_h = self.sec_nav.winfo_height() + SEC_LOGS_HEIGHT + SEC_PANE_MAX_HEIGHT
+        cur_w = max(800, self.root.winfo_width())
+        self.root.minsize(cur_w, min_h)
+        self.root.maxsize(cur_w, max_h)
 
     def _build_manager_frame(self):
         f = self.frame_manager
@@ -1342,6 +1362,16 @@ class FaceRecognitionApp:
             self.cap = cv2.VideoCapture(1)
             self._update_security_frame()
 
+    def _limit_security_heights(self, event=None):
+        if not hasattr(self, 'sec_paned'):
+            return
+        nav_h = self.sec_nav.winfo_height()
+        bottom_h = self.sec_bottom.winfo_height()
+        avail = self.frame_security.winfo_height() - nav_h - bottom_h
+        target = max(SEC_PANE_MIN_HEIGHT, min(SEC_PANE_MAX_HEIGHT, avail))
+        for pane in (self.sec_left, self.sec_right, self.sec_paned):
+            pane.config(height=target)
+
     def _update_security_frame(self):
         if self.cap is None:
             return
@@ -1349,7 +1379,11 @@ class FaceRecognitionApp:
         if not ret:
             self.root.after(30, self._update_security_frame)
             return
-        frame = cv2.resize(frame, (600, 500))
+        w = self.security_video.winfo_width()
+        h = self.security_video.winfo_height()
+        if w < 10 or h < 10:
+            w, h = 600, 500
+        frame = cv2.resize(frame, (w, h))
         img = ImageTk.PhotoImage(image=Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
         self.security_video.imgtk = img
         self.security_video.config(image=img)
