@@ -580,6 +580,13 @@ class FaceRecognitionApp:
         nav.pack(fill="x")
         ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side="left", padx=10, pady=10)
         ttk.Button(nav, text="Завершить", command=self.on_closing).pack(side="right", padx=10, pady=10)
+        ttk.Label(nav, text='Высота логов:').pack(side='left', padx=(20, 5))
+        self.log_height_var = tk.IntVar(value=SEC_LOGS_HEIGHT)
+        self.log_height_spin = tk.Spinbox(
+            nav, from_=100, to=300, width=5,
+            textvariable=self.log_height_var,
+            command=self._on_log_height_change)
+        self.log_height_spin.pack(side='left', padx=5)
         self.sec_nav = nav
 
         paned = tk.PanedWindow(f, orient='horizontal', sashwidth=5, bg='#2c3e50')
@@ -602,7 +609,7 @@ class FaceRecognitionApp:
         paned.add(right, minsize=200)
         self.sec_right = right
 
-        bottom = tk.Frame(f, bg='#2c3e50', height=SEC_LOGS_HEIGHT)
+        bottom = tk.Frame(f, bg='#2c3e50', height=self.log_height_var.get())
         bottom.pack(side='bottom', fill='x', padx=10, pady=(0,10))
         bottom.pack_propagate(False)
         ttk.Label(bottom, text='Общие логи', style='Title.TLabel').pack(pady=5)
@@ -613,11 +620,13 @@ class FaceRecognitionApp:
         f.bind('<Configure>', self._limit_security_heights)
 
         self.root.update_idletasks()
-        min_h = self.sec_nav.winfo_height() + SEC_LOGS_HEIGHT + SEC_PANE_MIN_HEIGHT
-        max_h = self.sec_nav.winfo_height() + SEC_LOGS_HEIGHT + SEC_PANE_MAX_HEIGHT
+        log_h = self.log_height_var.get()
+        min_h = self.sec_nav.winfo_height() + log_h + SEC_PANE_MIN_HEIGHT
+        max_h = self.sec_nav.winfo_height() + log_h + SEC_PANE_MAX_HEIGHT
         cur_w = max(800, self.root.winfo_width())
         self.root.minsize(cur_w, min_h)
         self.root.maxsize(cur_w, max_h)
+        self._on_log_height_change()
 
     def _build_manager_frame(self):
         f = self.frame_manager
@@ -1371,6 +1380,20 @@ class FaceRecognitionApp:
         target = max(SEC_PANE_MIN_HEIGHT, min(SEC_PANE_MAX_HEIGHT, avail))
         for pane in (self.sec_left, self.sec_right, self.sec_paned):
             pane.config(height=target)
+
+    def _on_log_height_change(self):
+        if not hasattr(self, 'sec_bottom'):
+            return
+        height = int(self.log_height_var.get())
+        self.sec_bottom.config(height=height)
+        log_h = height
+        nav_h = self.sec_nav.winfo_height()
+        cur_w = max(800, self.root.winfo_width())
+        min_h = nav_h + log_h + SEC_PANE_MIN_HEIGHT
+        max_h = nav_h + log_h + SEC_PANE_MAX_HEIGHT
+        self.root.minsize(cur_w, min_h)
+        self.root.maxsize(cur_w, max_h)
+        self._limit_security_heights()
 
     def _update_security_frame(self):
         if self.cap is None:
