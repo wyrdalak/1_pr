@@ -284,46 +284,61 @@ class FaceRecognitionApp:
 
     def _create_icons(self):
         """Create small icons used on the zone toolbar."""
+        ICON_SIZE = 32
+
         def rect_icon():
-            img = tk.PhotoImage(width=16, height=16)
-            for x in range(16):
-                for y in range(16):
-                    if 2 <= x <= 13 and 2 <= y <= 13:
+            img = tk.PhotoImage(width=ICON_SIZE, height=ICON_SIZE)
+            for x in range(ICON_SIZE):
+                for y in range(ICON_SIZE):
+                    if 4 <= x <= ICON_SIZE - 5 and 4 <= y <= ICON_SIZE - 5:
                         img.put('#cccccc', (x, y))
-                    if x in (2, 13) or y in (2, 13):
+                    if x in (4, ICON_SIZE - 5) or y in (4, ICON_SIZE - 5):
                         img.put('#000000', (x, y))
             return img
 
         def poly_icon():
-            img = tk.PhotoImage(width=16, height=16)
-            for x in range(16):
-                for y in range(16):
-                    if abs(x-8) + abs(y-8) <= 6:
-                        color = '#cccccc' if abs(x-8) + abs(y-8) < 6 else '#000000'
+            img = tk.PhotoImage(width=ICON_SIZE, height=ICON_SIZE)
+            cx = cy = ICON_SIZE // 2
+            for x in range(ICON_SIZE):
+                for y in range(ICON_SIZE):
+                    if abs(x - cx) + abs(y - cy) <= ICON_SIZE // 2 - 4:
+                        color = '#cccccc' if abs(x - cx) + abs(y - cy) < ICON_SIZE // 2 - 4 else '#000000'
                         img.put(color, (x, y))
             return img
 
         def del_icon():
-            img = tk.PhotoImage(width=16, height=16)
-            for i in range(16):
+            img = tk.PhotoImage(width=ICON_SIZE, height=ICON_SIZE)
+            for i in range(ICON_SIZE):
                 img.put('#ff0000', (i, i))
-                img.put('#ff0000', (15-i, i))
+                img.put('#ff0000', (ICON_SIZE - 1 - i, i))
             return img
 
         def clear_icon():
-            img = tk.PhotoImage(width=16, height=16)
-            for x in range(16):
-                img.put('#ff0000', (x, 7))
-                img.put('#ff0000', (x, 8))
+            img = tk.PhotoImage(width=ICON_SIZE, height=ICON_SIZE)
+            # Корпус урны
+            for x in range(10, ICON_SIZE - 10):
+                img.put('#000000', (x, ICON_SIZE - 9))
+                img.put('#000000', (x, ICON_SIZE - 3))
+            for y in range(ICON_SIZE - 9, ICON_SIZE - 3):
+                img.put('#000000', (10, y))
+                img.put('#000000', (ICON_SIZE - 11, y))
+            # Крышка и ручка
+            for x in range(8, ICON_SIZE - 8):
+                img.put('#000000', (x, ICON_SIZE - 10))
+            for x in range(14, ICON_SIZE - 14):
+                img.put('#000000', (x, ICON_SIZE - 12))
             return img
 
         def move_icon():
-            img = tk.PhotoImage(width=16, height=16)
-            for i in range(16):
-                img.put('#000000', (7, i))
-                img.put('#000000', (8, i))
-                img.put('#000000', (i, 7))
-                img.put('#000000', (i, 8))
+            img = tk.PhotoImage(width=ICON_SIZE, height=ICON_SIZE)
+            # Простая иконка руки
+            for x in range(12, ICON_SIZE - 12):
+                for y in range(ICON_SIZE // 2, ICON_SIZE - 8):
+                    img.put('#000000', (x, y))
+            for i, x in enumerate(range(12, ICON_SIZE - 12, 4)):
+                for y in range(ICON_SIZE // 2 - 6, ICON_SIZE // 2):
+                    img.put('#000000', (x, y))
+                    img.put('#000000', (x + 1, y))
             return img
 
         self.icon_rect = rect_icon()
@@ -554,26 +569,32 @@ class FaceRecognitionApp:
         canvas_frame = ttk.Frame(f)
         canvas_frame.pack(expand=True, fill='both')
         toolbar = ttk.Frame(canvas_frame)
-        toolbar.pack(side='left', fill='y', padx=5, pady=5)
+        toolbar.pack(side='top', fill='x', padx=5, pady=5)
         self.zone_tool_buttons = {}
+        btn_opts = {'width': 32, 'height': 32}
         self.zone_tool_buttons['rect'] = tk.Button(toolbar, image=self.icon_rect,
-                                                  command=lambda: self._set_zone_tool('rect'))
-        self.zone_tool_buttons['rect'].pack(pady=2)
+                                                  command=lambda: self._set_zone_tool('rect'),
+                                                  **btn_opts)
+        self.zone_tool_buttons['rect'].pack(side='left', padx=2)
         self.zone_tool_buttons['poly'] = tk.Button(toolbar, image=self.icon_poly,
-                                                  command=lambda: self._set_zone_tool('poly'))
-        self.zone_tool_buttons['poly'].pack(pady=2)
+                                                  command=lambda: self._set_zone_tool('poly'),
+                                                  **btn_opts)
+        self.zone_tool_buttons['poly'].pack(side='left', padx=2)
         self.zone_tool_buttons['move'] = tk.Button(toolbar, image=self.icon_move,
-                                                  command=lambda: self._set_zone_tool('move'))
-        self.zone_tool_buttons['move'].pack(pady=2)
+                                                  command=lambda: self._set_zone_tool('move'),
+                                                  **btn_opts)
+        self.zone_tool_buttons['move'].pack(side='left', padx=2)
         self.zone_tool_buttons['delete'] = tk.Button(toolbar, image=self.icon_delete,
-                                                    command=lambda: self._set_zone_tool('delete'))
-        self.zone_tool_buttons['delete'].pack(pady=2)
-        tk.Button(toolbar, image=self.icon_clear, command=self._clear_zones).pack(pady=2)
+                                                    command=lambda: self._set_zone_tool('delete'),
+                                                    **btn_opts)
+        self.zone_tool_buttons['delete'].pack(side='left', padx=2)
+        tk.Button(toolbar, image=self.icon_clear, command=self._clear_zones,
+                 **btn_opts).pack(side='left', padx=2)
 
         self.default_tool_bg = self.zone_tool_buttons['rect'].cget('bg')
 
         canvas_holder = ttk.Frame(canvas_frame)
-        canvas_holder.pack(side='left', expand=True, fill='both')
+        canvas_holder.pack(side='top', expand=True, fill='both')
         self.zone_canvas = tk.Canvas(canvas_holder, bg='#34495e',
                                      width=ENV_IMAGE_SIZE[0], height=ENV_IMAGE_SIZE[1],
                                      highlightthickness=1, highlightbackground='white')
