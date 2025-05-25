@@ -56,6 +56,10 @@ if not os.path.exists(ASSIGNMENTS_FILE):
     with open(ASSIGNMENTS_FILE, 'w', encoding='utf-8') as f:
         f.write('[]')
 
+# Размер изображений помещений, используемый в интерфейсе руководителя
+# Увеличен для более удобной работы с зонами
+ENV_IMAGE_SIZE = (800, 600)
+
 DEPARTMENT_OPTIONS = {
     'Блок по бизнес приложениям': [
         'Департамент систем поддержки эксплуатации АЭС',
@@ -525,43 +529,55 @@ class FaceRecognitionApp:
         ttk.Label(f, text='Руководитель', style='Title.TLabel').pack(pady=10)
         frm = ttk.Frame(f)
         frm.pack(pady=10)
-        ttk.Label(frm, text='Сотрудник:').grid(row=0, column=0, sticky='e')
+        emp_frame = ttk.Frame(frm)
+        emp_frame.pack(side='left', padx=5)
+        ttk.Label(emp_frame, text='Сотрудник:').pack(side='left')
         self.manager_emp = tk.StringVar()
-        self.emp_menu = ttk.OptionMenu(frm, self.manager_emp, '')
-        self.emp_menu.grid(row=0, column=1, sticky='w')
-        ttk.Label(frm, text='Окружение:').grid(row=1, column=0, sticky='e')
+        self.emp_menu = ttk.OptionMenu(emp_frame, self.manager_emp, '')
+        self.emp_menu.pack(side='left')
+        env_frame = ttk.Frame(frm)
+        env_frame.pack(side='left', padx=15)
+        ttk.Label(env_frame, text='Окружение:').pack(side='left')
         self.manager_env = tk.StringVar()
-        self.env_menu = ttk.OptionMenu(frm, self.manager_env, '', command=self._load_manager_env)
-        self.env_menu.grid(row=1, column=1, sticky='w')
-        ttk.Label(frm, text='Войти до:').grid(row=2, column=0, sticky='e')
-        self.enter_entry = ttk.Entry(frm, width=20)
-        self.enter_entry.grid(row=2, column=1, sticky='w')
-        ttk.Label(frm, text='Выйти до:').grid(row=3, column=0, sticky='e')
-        self.exit_entry = ttk.Entry(frm, width=20)
-        self.exit_entry.grid(row=3, column=1, sticky='w')
-        ttk.Button(frm, text='Назначить', command=self._assign_employee).grid(row=4, column=0, columnspan=2, pady=5)
+        self.env_menu = ttk.OptionMenu(env_frame, self.manager_env, '', command=self._load_manager_env)
+        self.env_menu.pack(side='left')
+        time_frame = ttk.Frame(frm)
+        time_frame.pack(side='left', padx=5)
+        ttk.Label(time_frame, text='Войти до:').grid(row=0, column=0, sticky='e')
+        self.enter_entry = ttk.Entry(time_frame, width=20)
+        self.enter_entry.grid(row=0, column=1, sticky='w')
+        ttk.Label(time_frame, text='Выйти до:').grid(row=1, column=0, sticky='e')
+        self.exit_entry = ttk.Entry(time_frame, width=20)
+        self.exit_entry.grid(row=1, column=1, sticky='w')
+        ttk.Button(time_frame, text='Назначить', command=self._assign_employee).grid(row=2, column=0, columnspan=2, pady=5)
 
-        toolbar = ttk.Frame(f)
-        toolbar.pack(pady=5)
+        canvas_frame = ttk.Frame(f)
+        canvas_frame.pack(expand=True, fill='both')
+        toolbar = ttk.Frame(canvas_frame)
+        toolbar.pack(side='left', fill='y', padx=5, pady=5)
         self.zone_tool_buttons = {}
         self.zone_tool_buttons['rect'] = tk.Button(toolbar, image=self.icon_rect,
                                                   command=lambda: self._set_zone_tool('rect'))
-        self.zone_tool_buttons['rect'].pack(side='left', padx=2)
+        self.zone_tool_buttons['rect'].pack(pady=2)
         self.zone_tool_buttons['poly'] = tk.Button(toolbar, image=self.icon_poly,
                                                   command=lambda: self._set_zone_tool('poly'))
-        self.zone_tool_buttons['poly'].pack(side='left', padx=2)
+        self.zone_tool_buttons['poly'].pack(pady=2)
         self.zone_tool_buttons['move'] = tk.Button(toolbar, image=self.icon_move,
                                                   command=lambda: self._set_zone_tool('move'))
-        self.zone_tool_buttons['move'].pack(side='left', padx=2)
+        self.zone_tool_buttons['move'].pack(pady=2)
         self.zone_tool_buttons['delete'] = tk.Button(toolbar, image=self.icon_delete,
                                                     command=lambda: self._set_zone_tool('delete'))
-        self.zone_tool_buttons['delete'].pack(side='left', padx=2)
-        tk.Button(toolbar, image=self.icon_clear, command=self._clear_zones).pack(side='left', padx=2)
+        self.zone_tool_buttons['delete'].pack(pady=2)
+        tk.Button(toolbar, image=self.icon_clear, command=self._clear_zones).pack(pady=2)
 
         self.default_tool_bg = self.zone_tool_buttons['rect'].cget('bg')
 
-        self.zone_canvas = tk.Canvas(f, bg='#34495e', width=600, height=400)
-        self.zone_canvas.pack(expand=True, fill='both', padx=20, pady=10)
+        canvas_holder = ttk.Frame(canvas_frame)
+        canvas_holder.pack(side='left', expand=True, fill='both')
+        self.zone_canvas = tk.Canvas(canvas_holder, bg='#34495e',
+                                     width=ENV_IMAGE_SIZE[0], height=ENV_IMAGE_SIZE[1],
+                                     highlightthickness=1, highlightbackground='white')
+        self.zone_canvas.place(relx=0.5, rely=0, anchor='n')
         self.zone_canvas.bind('<ButtonPress-1>', self._zone_press)
         self.zone_canvas.bind('<B1-Motion>', self._zone_drag)
         self.zone_canvas.bind('<ButtonRelease-1>', self._zone_release)
@@ -641,8 +657,19 @@ class FaceRecognitionApp:
             messagebox.showwarning("Ошибка", "Заполните все поля и выберите изображение")
             return
 
-        # 1) Подготовка multipart/form-data
-        files = {'image': open(img_path, 'rb')}
+        # 1) Подготовка изображения к единому размеру
+        try:
+            img = Image.open(img_path)
+            img = img.convert('RGB')
+            img = img.resize(ENV_IMAGE_SIZE, Image.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format='JPEG')
+            buf.seek(0)
+            files = {'image': ('image.jpg', buf, 'image/jpeg')}
+        except Exception as e:
+            logging.error("Не удалось обработать изображение: %s", e)
+            messagebox.showerror("Ошибка", "Не удалось загрузить изображение")
+            return
         data = {'name': name, 'location': loc}
 
         # 2) POST на /api/environments
@@ -811,10 +838,13 @@ class FaceRecognitionApp:
                 img = Image.open(io.BytesIO(r.content))
             else:
                 img = Image.open(img_path)
+            img = img.convert('RGB')
+            img = img.resize(ENV_IMAGE_SIZE, Image.LANCZOS)
             self.zone_image = ImageTk.PhotoImage(img)
-            self.zone_canvas.config(width=self.zone_image.width(), height=self.zone_image.height())
+            self.zone_canvas.config(width=ENV_IMAGE_SIZE[0], height=ENV_IMAGE_SIZE[1])
             self.zone_canvas.delete('all')
-            self.zone_canvas.create_image(0, 0, anchor='nw', image=self.zone_image)
+            self.zone_canvas.create_image(ENV_IMAGE_SIZE[0]//2, 0, anchor='n', image=self.zone_image)
+            self.zone_canvas.create_rectangle(0, 0, ENV_IMAGE_SIZE[0], ENV_IMAGE_SIZE[1], outline='white', tags='image_border')
             # загрузить зоны
             self.zones = []
             if env.get('id'):
@@ -864,14 +894,32 @@ class FaceRecognitionApp:
             px, py = nx, ny
         return inside
 
-    def _zone_press(self, event):
-        item = self.zone_canvas.find_withtag('current')
+    def _find_near_handle(self, x, y, radius=15):
+        """Return (zone, index) of handle close to (x,y) or None."""
+        if self.creating_poly:
+            for idx, h in enumerate(self.creating_poly['handles']):
+                coords = self.zone_canvas.coords(h)
+                if not coords:
+                    continue
+                hx = (coords[0] + coords[2]) / 2
+                hy = (coords[1] + coords[3]) / 2
+                if (hx - x) ** 2 + (hy - y) ** 2 <= radius ** 2:
+                    return ('creating', idx)
         for z in self.zones:
-            if item and item[0] in z.get('handles', []):
-                self.dragging_handle = (z, z['handles'].index(item[0]))
-                return
-        if self.creating_poly and self.zone_tool == 'move' and item and item[0] in self.creating_poly['handles']:
-            self.dragging_handle = ('creating', self.creating_poly['handles'].index(item[0]))
+            for idx, h in enumerate(z.get('handles', [])):
+                coords = self.zone_canvas.coords(h)
+                if not coords:
+                    continue
+                hx = (coords[0] + coords[2]) / 2
+                hy = (coords[1] + coords[3]) / 2
+                if (hx - x) ** 2 + (hy - y) ** 2 <= radius ** 2:
+                    return (z, idx)
+        return None
+
+    def _zone_press(self, event):
+        res = self._find_near_handle(event.x, event.y)
+        if res:
+            self.dragging_handle = res
             return
         if self.zone_tool == 'move':
             return
