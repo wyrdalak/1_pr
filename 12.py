@@ -908,7 +908,7 @@ class FaceRecognitionApp:
                     pts = [(z[0], z[1]), (z[2], z[1]), (z[2], z[3]), (z[0], z[3])]
                     typ = 'rect'
                 shape = self.zone_canvas.create_polygon(
-                    *self._flatten(pts), outline='red', fill='red', stipple='gray50'
+                    *self._flatten(pts), outline='red', fill='red', stipple='gray25'
                 )
                 handles = [self._create_handle(px, py) for px, py in pts]
                 processed.append({'type': typ, 'points': pts, 'shape': shape, 'handles': handles})
@@ -985,7 +985,7 @@ class FaceRecognitionApp:
             self.zone_start = (event.x, event.y)
             self.current_rect = self.zone_canvas.create_polygon(
                 event.x, event.y, event.x, event.y, event.x, event.y, event.x, event.y,
-                outline='red', fill='red', stipple='gray50'
+                outline='red', fill='red', stipple='gray25'
             )
         elif self.zone_tool == 'poly':
             if not self.creating_poly:
@@ -999,7 +999,7 @@ class FaceRecognitionApp:
                     cy = sum(p[1] for p in pts) / 4
                     pts = sorted(pts, key=lambda p: math.atan2(p[1]-cy, p[0]-cx))
                     poly = self.zone_canvas.create_polygon(
-                        *self._flatten(pts), outline='red', fill='red', stipple='gray50'
+                        *self._flatten(pts), outline='red', fill='red', stipple='gray25'
                     )
                     zone = {'type': 'poly', 'points': pts, 'shape': poly, 'handles': self.creating_poly['handles']}
                     self.zones.append(zone)
@@ -1042,7 +1042,7 @@ class FaceRecognitionApp:
             handles = [self._create_handle(px, py) for px, py in pts]
             self.zone_canvas.delete(self.current_rect)
             poly = self.zone_canvas.create_polygon(
-                *self._flatten(pts), outline='red', fill='red', stipple='gray50'
+                *self._flatten(pts), outline='red', fill='red', stipple='gray25'
             )
             self.zones.append({'type': 'rect', 'points': pts, 'shape': poly, 'handles': handles})
             self.current_rect = None
