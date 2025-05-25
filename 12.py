@@ -68,6 +68,28 @@ SEC_LOGS_HEIGHT = 150
 SEC_SASH_COLOR = 'white'
 SEC_SASH_WIDTH = 3
 
+# Файл конфигурации для сопоставления помещений и номеров камер
+CAMERA_MAP_FILE = 'camera_map.json'
+
+
+def load_camera_map():
+    """Load mapping of environment names to camera indices."""
+    if os.path.exists(CAMERA_MAP_FILE):
+        try:
+            with open(CAMERA_MAP_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return {str(k): int(v) for k, v in data.items()}
+        except Exception:
+            pass
+    return {}
+
+
+def save_camera_map(mapping):
+    with open(CAMERA_MAP_FILE, 'w', encoding='utf-8') as f:
+        json.dump(mapping, f, ensure_ascii=False, indent=2)
+
+
 DEPARTMENT_OPTIONS = {
     'Блок по бизнес приложениям': [
         'Департамент систем поддержки эксплуатации АЭС',
@@ -206,6 +228,7 @@ class FaceRecognitionApp:
         self.last_emp_check = time.time()
         self.environments = load_environments()
         self.assignments = load_assignments()
+        self.camera_map = load_camera_map()
         self.env_selected_image = ''
         self.process_frame = True
         self.cap = None
@@ -583,6 +606,13 @@ class FaceRecognitionApp:
         nav.pack(fill="x")
         ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side="left", padx=10, pady=10)
         ttk.Button(nav, text="Завершить", command=self.on_closing).pack(side="right", padx=10, pady=10)
+        env_frame = ttk.Frame(nav)
+        env_frame.pack(side='left', padx=10)
+        ttk.Label(env_frame, text='Помещение:').pack(side='left')
+        self.security_env = tk.StringVar()
+        self.security_menu = ttk.OptionMenu(env_frame, self.security_env, '')
+        self.security_menu.pack(side='left')
+        self.security_env.trace_add('write', lambda *_: self._change_security_env())
         self.sec_nav = nav
 
         outer = tk.PanedWindow(
@@ -769,6 +799,18 @@ class FaceRecognitionApp:
         self.warning_text.delete('1.0', tk.END)
         self.warning_text.insert('1.0', data)
 
+    def _refresh_security_envs(self):
+        menu = self.security_menu['menu']
+        menu.delete(0, 'end')
+        names = [e['name'] for e in self.environments]
+        for n in names:
+            menu.add_command(label=n, command=lambda v=n: self.security_env.set(v))
+        if names:
+            if not self.security_env.get() or self.security_env.get() not in names:
+                self.security_env.set(names[0])
+            # Ensure camera is started for current selection
+            self._change_security_env()
+
     def _show_frame(self, target):
         for frm in (self.frame_role, self.frame_employee, self.frame_admin_choice, self.frame_admin,
                      self.frame_admin_env, self.frame_security, self.frame_manager):
@@ -782,6 +824,7 @@ class FaceRecognitionApp:
         else:
             self._stop_camera()
         if target == self.frame_security:
+            self._refresh_security_envs()
             self._start_security_cam()
             self._load_warning_logs()
             self._load_all_logs()
@@ -1379,8 +1422,7 @@ class FaceRecognitionApp:
 
     def _start_security_cam(self):
         if self.cap is None:
-            self.cap = cv2.VideoCapture(1)
-            self._update_security_frame()
+            self._change_security_env()
 
     def _limit_security_heights(self, event=None):
         if not hasattr(self, 'sec_outer'):
@@ -1416,6 +1458,22 @@ class FaceRecognitionApp:
         self.security_video.imgtk = img
         self.security_video.config(image=img)
         self.root.after(30, self._update_security_frame)
+
+    def _change_security_env(self):
+        """Switch camera feed according to selected environment."""
+        env_name = self.security_env.get()
+        cam_idx = self.camera_map.get(env_name)
+        if cam_idx is None:
+            # fallback: try sequential mapping by order in list
+            names = [e['name'] for e in self.environments]
+            if env_name in names:
+                cam_idx = names.index(env_name)
+            else:
+                cam_idx = 0
+        if self.cap:
+            self.cap.release()
+        self.cap = cv2.VideoCapture(cam_idx)
+        self._update_security_frame()
     def _send_log(self, level: str, msg: str):
         """Логирует событие и отправляет его на сервер."""
         lvl = logging.INFO if level.upper() == 'INFO' else logging.WARNING
