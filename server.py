@@ -38,6 +38,12 @@ def _save_employees():
         json.dump(list(employees.values()), f, ensure_ascii=False, indent=2)
 
 
+@app.route('/api/employees/version', methods=['GET'])
+def employees_version():
+    """Return modification timestamp of employee metadata."""
+    return jsonify({'version': os.path.getmtime(EMP_META)})
+
+
 def _save_environments():
     with open(ENV_META, 'w', encoding='utf-8') as f:
         json.dump(list(environments.values()), f, ensure_ascii=False, indent=2)
