@@ -1465,7 +1465,9 @@ class FaceRecognitionApp:
                     cv2.polylines(frame, [np.array(pts, dtype=np.int32)], True, (0, 0, 255), 2)
 
             if self.yolo:
-                results = self.yolo(frame)[0]
+                # disable verbose output from the YOLO model to avoid console
+                # spam like "0: 224x640 1 person" for each frame
+                results = self.yolo(frame, verbose=False)[0]
                 for box in results.boxes:
                     cls = int(box.cls[0])
                     if results.names[cls] != 'person':
