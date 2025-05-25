@@ -2,6 +2,7 @@ import face_recognition
 import cv2
 import os
 import numpy as np
+from ultralytics import YOLO
 import tkinter as tk
 import tkinter.font as tkfont
 import tkinter.ttk as ttk
@@ -17,6 +18,7 @@ import math
 # Адрес API вашего сервера
 API_HOST = 'http://192.168.0.111:5001'     # или 'http://<IP_СЕРВЕРА>:5001'
 API_URL  = API_HOST + '/api'
+YOLO_WEIGHTS = 'yolov5s.pt'
 
 # --- Настройка логирования ---
 logging.basicConfig(
@@ -209,6 +211,7 @@ class FaceRecognitionApp:
         self.env_selected_image = ''
         self.process_frame = True
         self.cap = None
+        self.yolo = None
         self.start_time = None
         self.fail_count = 0
         self.total_failed_identifications = 0
@@ -1396,6 +1399,11 @@ class FaceRecognitionApp:
     def _start_security_cam(self):
         if self.cap is None:
             self.cap = cv2.VideoCapture(0)
+            if self.yolo is None:
+                try:
+                    self.yolo = YOLO(YOLO_WEIGHTS)
+                except Exception as e:
+                    logging.error(f'Failed to load YOLO model: {e}')
             # выбираем первое доступное помещение для мониторинга
             if self.environments:
                 env = self.environments[0]
@@ -1439,27 +1447,48 @@ class FaceRecognitionApp:
         if w < 10 or h < 10:
             w, h = 600, 500
         frame = cv2.resize(frame, (w, h))
-        # Наложение зон из интерфейса руководителя
+        # Наложение зон из интерфейса руководителя и поиск людей
         if self.security_zones:
             scale_x = w / ENV_IMAGE_SIZE[0]
             scale_y = h / ENV_IMAGE_SIZE[1]
+            scaled_zones = []
             for z in self.security_zones:
                 pts = [(int(p[0] * scale_x), int(p[1] * scale_y)) for p in z.get('points', [])]
                 if pts:
+                    scaled_zones.append(pts)
                     cv2.polylines(frame, [np.array(pts, dtype=np.int32)], True, (0, 0, 255), 2)
-            # Детекция лиц и проверка попадания в зону
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            locs = face_recognition.face_locations(rgb)
-            for top, right, bottom, left in locs:
-                cx = (left + right) // 2
-                cy = (top + bottom) // 2
-                for z in self.security_zones:
-                    pts = [(int(p[0] * scale_x), int(p[1] * scale_y)) for p in z.get('points', [])]
-                    if pts and self._point_in_poly(cx, cy, pts):
-                        if time.time() - self.last_zone_warning > 5:
-                            self.last_zone_warning = time.time()
-                            self._send_log('WARNING', 'Person detected in restricted zone')
-                        break
+
+            if self.yolo:
+                results = self.yolo(frame)[0]
+                for box in results.boxes:
+                    cls = int(box.cls[0])
+                    if results.names[cls] != 'person':
+                        continue
+                    x1, y1, x2, y2 = map(int, box.xyxy[0])
+                    cx = (x1 + x2) // 2
+                    cy = (y1 + y2) // 2
+                    inside = False
+                    for pts in scaled_zones:
+                        if self._point_in_poly(cx, cy, pts):
+                            inside = True
+                            if time.time() - self.last_zone_warning > 5:
+                                self.last_zone_warning = time.time()
+                                self._send_log('WARNING', 'Person detected in restricted zone')
+                            break
+                    color = (0, 0, 255) if inside else (0, 255, 0)
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            else:
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                locs = face_recognition.face_locations(rgb)
+                for top, right, bottom, left in locs:
+                    cx = (left + right) // 2
+                    cy = (top + bottom) // 2
+                    for pts in scaled_zones:
+                        if self._point_in_poly(cx, cy, pts):
+                            if time.time() - self.last_zone_warning > 5:
+                                self.last_zone_warning = time.time()
+                                self._send_log('WARNING', 'Person detected in restricted zone')
+                            break
         img = ImageTk.PhotoImage(image=Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
         self.security_video.imgtk = img
         self.security_video.config(image=img)
