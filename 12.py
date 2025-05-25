@@ -553,8 +553,13 @@ class FaceRecognitionApp:
         self._apply_gradient_background(f)
         nav = ttk.Frame(f)
         nav.pack(fill='x')
-        ttk.Button(nav, text='Назад', command=lambda: self._show_frame(self.frame_role)).pack(side='left', padx=10, pady=10)
-        ttk.Button(nav, text='Завершить', command=self.on_closing).pack(side='right', padx=10, pady=10)
+        self.mgr_back_btn = self._create_gradient_button(
+            nav, 'Назад', lambda: self._show_frame(self.frame_role),
+            width=170, height=50)
+        self.mgr_back_btn.pack(side='left', padx=10, pady=10)
+        self.mgr_exit_btn = self._create_gradient_button(
+            nav, 'Завершить', self.on_closing, width=170, height=50)
+        self.mgr_exit_btn.pack(side='right', padx=10, pady=10)
         ttk.Label(f, text='Руководитель', style='Title.TLabel').pack(pady=10)
         frm = ttk.Frame(f)
         frm.pack(pady=10)
@@ -580,9 +585,9 @@ class FaceRecognitionApp:
         self.exit_entry.grid(row=1, column=1, sticky='w')
         ttk.Button(time_frame, text='Назначить', command=self._assign_employee).grid(row=2, column=0, columnspan=2, pady=5)
 
-        canvas_frame = ttk.Frame(f)
+        canvas_frame = tk.Frame(f, bg='#2c3e50')
         canvas_frame.pack(expand=True, fill='both')
-        toolbar = ttk.Frame(canvas_frame)
+        toolbar = tk.Frame(canvas_frame, bg='#2c3e50')
         toolbar.pack(side='top', pady=(5,0))
         self.zone_tool_buttons = {}
         btn_opts = {'width': 32, 'height': 32}
@@ -611,9 +616,9 @@ class FaceRecognitionApp:
 
         self.default_tool_bg = self.zone_tool_buttons['rect'].cget('bg')
 
-        canvas_holder = ttk.Frame(canvas_frame)
+        canvas_holder = tk.Frame(canvas_frame, bg='#2c3e50')
         canvas_holder.pack(side='top', expand=True, fill='both', pady=(0,5))
-        self.zone_canvas = tk.Canvas(canvas_holder, bg='#34495e',
+        self.zone_canvas = tk.Canvas(canvas_holder, bg='#2c3e50',
                                      width=ENV_IMAGE_SIZE[0], height=ENV_IMAGE_SIZE[1],
                                      highlightthickness=1, highlightbackground='white')
         self.zone_canvas.place(relx=0.5, rely=0, anchor='n')
@@ -903,7 +908,7 @@ class FaceRecognitionApp:
                     pts = [(z[0], z[1]), (z[2], z[1]), (z[2], z[3]), (z[0], z[3])]
                     typ = 'rect'
                 shape = self.zone_canvas.create_polygon(
-                    *self._flatten(pts), outline='red', fill='red', stipple='gray12'
+                    *self._flatten(pts), outline='red', fill='red', stipple='gray50'
                 )
                 handles = [self._create_handle(px, py) for px, py in pts]
                 processed.append({'type': typ, 'points': pts, 'shape': shape, 'handles': handles})
@@ -980,7 +985,7 @@ class FaceRecognitionApp:
             self.zone_start = (event.x, event.y)
             self.current_rect = self.zone_canvas.create_polygon(
                 event.x, event.y, event.x, event.y, event.x, event.y, event.x, event.y,
-                outline='red', fill='red', stipple='gray12'
+                outline='red', fill='red', stipple='gray50'
             )
         elif self.zone_tool == 'poly':
             if not self.creating_poly:
@@ -994,7 +999,7 @@ class FaceRecognitionApp:
                     cy = sum(p[1] for p in pts) / 4
                     pts = sorted(pts, key=lambda p: math.atan2(p[1]-cy, p[0]-cx))
                     poly = self.zone_canvas.create_polygon(
-                        *self._flatten(pts), outline='red', fill='red', stipple='gray12'
+                        *self._flatten(pts), outline='red', fill='red', stipple='gray50'
                     )
                     zone = {'type': 'poly', 'points': pts, 'shape': poly, 'handles': self.creating_poly['handles']}
                     self.zones.append(zone)
@@ -1037,7 +1042,7 @@ class FaceRecognitionApp:
             handles = [self._create_handle(px, py) for px, py in pts]
             self.zone_canvas.delete(self.current_rect)
             poly = self.zone_canvas.create_polygon(
-                *self._flatten(pts), outline='red', fill='red', stipple='gray12'
+                *self._flatten(pts), outline='red', fill='red', stipple='gray50'
             )
             self.zones.append({'type': 'rect', 'points': pts, 'shape': poly, 'handles': handles})
             self.current_rect = None
