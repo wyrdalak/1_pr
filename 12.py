@@ -313,10 +313,20 @@ class FaceRecognitionApp:
                 img.put('#ff0000', (x, 8))
             return img
 
+        def move_icon():
+            img = tk.PhotoImage(width=16, height=16)
+            for i in range(16):
+                img.put('#000000', (7, i))
+                img.put('#000000', (8, i))
+                img.put('#000000', (i, 7))
+                img.put('#000000', (i, 8))
+            return img
+
         self.icon_rect = rect_icon()
         self.icon_poly = poly_icon()
         self.icon_delete = del_icon()
         self.icon_clear = clear_icon()
+        self.icon_move = move_icon()
 
     def _build_role_frame(self):
         f = self.frame_role
@@ -540,10 +550,15 @@ class FaceRecognitionApp:
         self.zone_tool_buttons['poly'] = tk.Button(toolbar, image=self.icon_poly,
                                                   command=lambda: self._set_zone_tool('poly'))
         self.zone_tool_buttons['poly'].pack(side='left', padx=2)
+        self.zone_tool_buttons['move'] = tk.Button(toolbar, image=self.icon_move,
+                                                  command=lambda: self._set_zone_tool('move'))
+        self.zone_tool_buttons['move'].pack(side='left', padx=2)
         self.zone_tool_buttons['delete'] = tk.Button(toolbar, image=self.icon_delete,
                                                     command=lambda: self._set_zone_tool('delete'))
         self.zone_tool_buttons['delete'].pack(side='left', padx=2)
         tk.Button(toolbar, image=self.icon_clear, command=self._clear_zones).pack(side='left', padx=2)
+
+        self.default_tool_bg = self.zone_tool_buttons['rect'].cget('bg')
 
         self.zone_canvas = tk.Canvas(f, bg='#34495e', width=600, height=400)
         self.zone_canvas.pack(expand=True, fill='both', padx=20, pady=10)
@@ -818,7 +833,7 @@ class FaceRecognitionApp:
                     pts = [(z[0], z[1]), (z[2], z[1]), (z[2], z[3]), (z[0], z[3])]
                     typ = 'rect'
                 shape = self.zone_canvas.create_polygon(
-                    *self._flatten(pts), outline='red', fill='red', stipple='gray75'
+                    *self._flatten(pts), outline='red', fill='red', stipple='gray12'
                 )
                 handles = [self._create_handle(px, py) for px, py in pts]
                 processed.append({'type': typ, 'points': pts, 'shape': shape, 'handles': handles})
@@ -832,7 +847,8 @@ class FaceRecognitionApp:
         if hasattr(self, 'zone_tool_buttons'):
             for name, btn in self.zone_tool_buttons.items():
                 relief = 'sunken' if name == tool else 'raised'
-                btn.config(relief=relief)
+                bg = '#d0d0ff' if name == tool else self.default_tool_bg
+                btn.config(relief=relief, bg=bg)
 
     def _create_handle(self, x, y):
         return self.zone_canvas.create_oval(x-4, y-4, x+4, y+4, fill='yellow', outline='black', tags='handle')
@@ -854,6 +870,11 @@ class FaceRecognitionApp:
             if item and item[0] in z.get('handles', []):
                 self.dragging_handle = (z, z['handles'].index(item[0]))
                 return
+        if self.creating_poly and self.zone_tool == 'move' and item and item[0] in self.creating_poly['handles']:
+            self.dragging_handle = ('creating', self.creating_poly['handles'].index(item[0]))
+            return
+        if self.zone_tool == 'move':
+            return
         if self.zone_tool == 'delete':
             self._delete_zone_at(event.x, event.y)
             return
@@ -861,7 +882,7 @@ class FaceRecognitionApp:
             self.zone_start = (event.x, event.y)
             self.current_rect = self.zone_canvas.create_polygon(
                 event.x, event.y, event.x, event.y, event.x, event.y, event.x, event.y,
-                outline='red', fill='red', stipple='gray75'
+                outline='red', fill='red', stipple='gray12'
             )
         elif self.zone_tool == 'poly':
             if not self.creating_poly:
@@ -875,7 +896,7 @@ class FaceRecognitionApp:
                     cy = sum(p[1] for p in pts) / 4
                     pts = sorted(pts, key=lambda p: math.atan2(p[1]-cy, p[0]-cx))
                     poly = self.zone_canvas.create_polygon(
-                        *self._flatten(pts), outline='red', fill='red', stipple='gray75'
+                        *self._flatten(pts), outline='red', fill='red', stipple='gray12'
                     )
                     zone = {'type': 'poly', 'points': pts, 'shape': poly, 'handles': self.creating_poly['handles']}
                     self.zones.append(zone)
@@ -884,9 +905,13 @@ class FaceRecognitionApp:
     def _zone_drag(self, event):
         if self.dragging_handle:
             z, idx = self.dragging_handle
-            z['points'][idx] = (event.x, event.y)
-            self.zone_canvas.coords(z['handles'][idx], event.x-4, event.y-4, event.x+4, event.y+4)
-            self.zone_canvas.coords(z['shape'], *self._flatten(z['points']))
+            if z == 'creating':
+                self.creating_poly['points'][idx] = (event.x, event.y)
+                self.zone_canvas.coords(self.creating_poly['handles'][idx], event.x-4, event.y-4, event.x+4, event.y+4)
+            else:
+                z['points'][idx] = (event.x, event.y)
+                self.zone_canvas.coords(z['handles'][idx], event.x-4, event.y-4, event.x+4, event.y+4)
+                self.zone_canvas.coords(z['shape'], *self._flatten(z['points']))
         elif self.current_rect:
             x0, y0 = self.zone_start
             pts = [(x0, y0), (event.x, y0), (event.x, event.y), (x0, event.y)]
@@ -902,12 +927,22 @@ class FaceRecognitionApp:
             handles = [self._create_handle(px, py) for px, py in pts]
             self.zone_canvas.delete(self.current_rect)
             poly = self.zone_canvas.create_polygon(
-                *self._flatten(pts), outline='red', fill='red', stipple='gray75'
+                *self._flatten(pts), outline='red', fill='red', stipple='gray12'
             )
             self.zones.append({'type': 'rect', 'points': pts, 'shape': poly, 'handles': handles})
             self.current_rect = None
 
     def _delete_zone_at(self, x, y):
+        if self.creating_poly:
+            for i, h in enumerate(list(self.creating_poly['handles'])):
+                coords = self.zone_canvas.coords(h)
+                if coords and coords[0] <= x <= coords[2] and coords[1] <= y <= coords[3]:
+                    self.zone_canvas.delete(h)
+                    del self.creating_poly['handles'][i]
+                    del self.creating_poly['points'][i]
+                    if not self.creating_poly['points']:
+                        self.creating_poly = None
+                    return
         for z in list(self.zones):
             if self._point_in_poly(x, y, z['points']):
                 for h in z['handles']:
@@ -931,6 +966,10 @@ class FaceRecognitionApp:
                 self.zone_canvas.delete(h)
             self.zone_canvas.delete(z['shape'])
         self.zones.clear()
+        if self.creating_poly:
+            for h in self.creating_poly['handles']:
+                self.zone_canvas.delete(h)
+            self.creating_poly = None
 
     @staticmethod
     def _flatten(pts):
