@@ -56,6 +56,9 @@ if not os.path.exists(ASSIGNMENTS_FILE):
     with open(ASSIGNMENTS_FILE, 'w', encoding='utf-8') as f:
         f.write('[]')
 
+# Размер изображений помещений, используемый в интерфейсе руководителя
+ENV_IMAGE_SIZE = (600, 400)
+
 DEPARTMENT_OPTIONS = {
     'Блок по бизнес приложениям': [
         'Департамент систем поддержки эксплуатации АЭС',
@@ -641,8 +644,19 @@ class FaceRecognitionApp:
             messagebox.showwarning("Ошибка", "Заполните все поля и выберите изображение")
             return
 
-        # 1) Подготовка multipart/form-data
-        files = {'image': open(img_path, 'rb')}
+        # 1) Подготовка изображения к единому размеру
+        try:
+            img = Image.open(img_path)
+            img = img.convert('RGB')
+            img = img.resize(ENV_IMAGE_SIZE, Image.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format='JPEG')
+            buf.seek(0)
+            files = {'image': ('image.jpg', buf, 'image/jpeg')}
+        except Exception as e:
+            logging.error("Не удалось обработать изображение: %s", e)
+            messagebox.showerror("Ошибка", "Не удалось загрузить изображение")
+            return
         data = {'name': name, 'location': loc}
 
         # 2) POST на /api/environments
@@ -811,8 +825,10 @@ class FaceRecognitionApp:
                 img = Image.open(io.BytesIO(r.content))
             else:
                 img = Image.open(img_path)
+            img = img.convert('RGB')
+            img = img.resize(ENV_IMAGE_SIZE, Image.LANCZOS)
             self.zone_image = ImageTk.PhotoImage(img)
-            self.zone_canvas.config(width=self.zone_image.width(), height=self.zone_image.height())
+            self.zone_canvas.config(width=ENV_IMAGE_SIZE[0], height=ENV_IMAGE_SIZE[1])
             self.zone_canvas.delete('all')
             self.zone_canvas.create_image(0, 0, anchor='nw', image=self.zone_image)
             # загрузить зоны
@@ -864,14 +880,32 @@ class FaceRecognitionApp:
             px, py = nx, ny
         return inside
 
-    def _zone_press(self, event):
-        item = self.zone_canvas.find_withtag('current')
+    def _find_near_handle(self, x, y, radius=15):
+        """Return (zone, index) of handle close to (x,y) or None."""
+        if self.creating_poly:
+            for idx, h in enumerate(self.creating_poly['handles']):
+                coords = self.zone_canvas.coords(h)
+                if not coords:
+                    continue
+                hx = (coords[0] + coords[2]) / 2
+                hy = (coords[1] + coords[3]) / 2
+                if (hx - x) ** 2 + (hy - y) ** 2 <= radius ** 2:
+                    return ('creating', idx)
         for z in self.zones:
-            if item and item[0] in z.get('handles', []):
-                self.dragging_handle = (z, z['handles'].index(item[0]))
-                return
-        if self.creating_poly and self.zone_tool == 'move' and item and item[0] in self.creating_poly['handles']:
-            self.dragging_handle = ('creating', self.creating_poly['handles'].index(item[0]))
+            for idx, h in enumerate(z.get('handles', [])):
+                coords = self.zone_canvas.coords(h)
+                if not coords:
+                    continue
+                hx = (coords[0] + coords[2]) / 2
+                hy = (coords[1] + coords[3]) / 2
+                if (hx - x) ** 2 + (hy - y) ** 2 <= radius ** 2:
+                    return (z, idx)
+        return None
+
+    def _zone_press(self, event):
+        res = self._find_near_handle(event.x, event.y)
+        if res:
+            self.dragging_handle = res
             return
         if self.zone_tool == 'move':
             return
