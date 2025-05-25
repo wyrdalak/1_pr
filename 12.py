@@ -143,11 +143,23 @@ def save_environments(envs):
             f.write(f"{env['name']};{env['location']};{img};{eid}\n")
 
 
+def get_employees_version():
+    """Return modification timestamp of employee metadata on the server."""
+    try:
+        resp = requests.get(f"{API_URL}/employees/version", timeout=5)
+        resp.raise_for_status()
+        return float(resp.json().get('version', 0))
+    except Exception:
+        return 0.0
+
+
 
 
 class FaceRecognitionApp:
     def __init__(self):
         self.known_face_encodings, self.known_face_names, self.employee_depts = load_known_faces()
+        self.emp_version = get_employees_version()
+        self.last_emp_check = time.time()
         self.environments = load_environments()
         self.env_selected_image = ''
         self.process_frame = True
@@ -187,6 +199,13 @@ class FaceRecognitionApp:
         self._show_frame(self.frame_role)
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.root.mainloop()
+
+    def _sync_employees(self):
+        """Reload employee data if it changed on the server."""
+        ver = get_employees_version()
+        if ver and ver != self.emp_version:
+            self.emp_version = ver
+            self.known_face_encodings, self.known_face_names, self.employee_depts = load_known_faces()
 
     def _setup_style(self):
         s = self.style
@@ -526,6 +545,7 @@ class FaceRecognitionApp:
             self.admin_status.config(text=f"Сотрудник {name} добавлен на сервер")
             # Обновляем локальные списки лиц и отображение
             self.known_face_encodings, self.known_face_names, self.employee_depts = load_known_faces()
+            self.emp_version = get_employees_version()
             self._refresh_catalog()
             # Сбрасываем поля формы
             self.name_entry.delete(0, 'end')
@@ -611,6 +631,7 @@ class FaceRecognitionApp:
             del self.employee_depts[name]
             save_department_mapping(self.employee_depts)
         self.known_face_encodings, self.known_face_names, self.employee_depts = load_known_faces()
+        self.emp_version = get_employees_version()
         self._refresh_catalog()
 
     def _start_employee_cam(self):
@@ -651,6 +672,9 @@ class FaceRecognitionApp:
 
     def _update_frame(self):
         if self.cap is None: return
+        if time.time() - self.last_emp_check > 10:
+            self.last_emp_check = time.time()
+            self._sync_employees()
         ret, frame = self.cap.read();
         if not ret: self.root.after(30, self._update_frame); return
         img = ImageTk.PhotoImage(image=Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
