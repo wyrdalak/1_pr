@@ -582,8 +582,12 @@ class FaceRecognitionApp:
         ttk.Button(nav, text="Завершить", command=self.on_closing).pack(side="right", padx=10, pady=10)
         self.sec_nav = nav
 
-        paned = tk.PanedWindow(f, orient='horizontal', sashwidth=5, bg='#2c3e50')
-        paned.pack(side='top', expand=True, fill='both')
+        outer = tk.PanedWindow(f, orient='vertical', sashwidth=5, bg='#2c3e50')
+        outer.pack(side='top', expand=True, fill='both')
+        self.sec_outer = outer
+
+        paned = tk.PanedWindow(outer, orient='horizontal', sashwidth=5, bg='#2c3e50')
+        paned.pack(expand=True, fill='both')
         self.sec_paned = paned
 
         left = tk.Frame(paned, bg='#2c3e50', height=SEC_PANE_MAX_HEIGHT)
@@ -602,20 +606,23 @@ class FaceRecognitionApp:
         paned.add(right, minsize=200)
         self.sec_right = right
 
-        bottom = tk.Frame(f, bg='#2c3e50', height=SEC_LOGS_HEIGHT)
-        bottom.pack(side='bottom', fill='x', padx=10, pady=(0,10))
+        bottom = tk.Frame(outer, bg='#2c3e50', height=SEC_LOGS_HEIGHT)
         bottom.pack_propagate(False)
         ttk.Label(bottom, text='Общие логи', style='Title.TLabel').pack(pady=5)
         self.general_log_text = scrolledtext.ScrolledText(bottom, height=10, font=("Courier", 12))
         self.general_log_text.pack(expand=True, fill='both')
         self.sec_bottom = bottom
 
+        outer.add(paned, minsize=SEC_PANE_MIN_HEIGHT)
+        outer.add(bottom, minsize=SEC_LOGS_HEIGHT)
+
         f.bind('<Configure>', self._limit_security_heights)
 
         self.root.update_idletasks()
-        min_h = self.sec_nav.winfo_height() + SEC_LOGS_HEIGHT + SEC_PANE_MIN_HEIGHT
-        max_h = self.sec_nav.winfo_height() + SEC_LOGS_HEIGHT + SEC_PANE_MAX_HEIGHT
+        nav_h = self.sec_nav.winfo_height()
         cur_w = max(800, self.root.winfo_width())
+        min_h = nav_h + SEC_LOGS_HEIGHT + SEC_PANE_MIN_HEIGHT
+        max_h = nav_h + SEC_LOGS_HEIGHT + SEC_PANE_MAX_HEIGHT
         self.root.minsize(cur_w, min_h)
         self.root.maxsize(cur_w, max_h)
 
@@ -1363,14 +1370,22 @@ class FaceRecognitionApp:
             self._update_security_frame()
 
     def _limit_security_heights(self, event=None):
-        if not hasattr(self, 'sec_paned'):
+        if not hasattr(self, 'sec_outer'):
             return
         nav_h = self.sec_nav.winfo_height()
+        total = self.frame_security.winfo_height() - nav_h
         bottom_h = self.sec_bottom.winfo_height()
-        avail = self.frame_security.winfo_height() - nav_h - bottom_h
-        target = max(SEC_PANE_MIN_HEIGHT, min(SEC_PANE_MAX_HEIGHT, avail))
+        top_h = total - bottom_h
+        target = max(SEC_PANE_MIN_HEIGHT, min(SEC_PANE_MAX_HEIGHT, top_h))
+        if target != top_h:
+            self.sec_outer.sash_place(0, 0, target)
         for pane in (self.sec_left, self.sec_right, self.sec_paned):
             pane.config(height=target)
+        cur_w = max(800, self.root.winfo_width())
+        min_h = nav_h + bottom_h + SEC_PANE_MIN_HEIGHT
+        max_h = nav_h + bottom_h + SEC_PANE_MAX_HEIGHT
+        self.root.minsize(cur_w, min_h)
+        self.root.maxsize(cur_w, max_h)
 
     def _update_security_frame(self):
         if self.cap is None:
