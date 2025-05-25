@@ -64,6 +64,9 @@ ENV_IMAGE_SIZE = (800, 600)
 SEC_PANE_MIN_HEIGHT = 300
 SEC_PANE_MAX_HEIGHT = 600
 SEC_LOGS_HEIGHT = 150
+# Цвет и ширина разделителей между областями
+SEC_SASH_COLOR = 'white'
+SEC_SASH_WIDTH = 3
 
 DEPARTMENT_OPTIONS = {
     'Блок по бизнес приложениям': [
@@ -582,11 +585,21 @@ class FaceRecognitionApp:
         ttk.Button(nav, text="Завершить", command=self.on_closing).pack(side="right", padx=10, pady=10)
         self.sec_nav = nav
 
-        outer = tk.PanedWindow(f, orient='vertical', sashwidth=5, bg='#2c3e50')
+        outer = tk.PanedWindow(
+            f,
+            orient='vertical',
+            sashwidth=SEC_SASH_WIDTH,
+            bg=SEC_SASH_COLOR
+        )
         outer.pack(side='top', expand=True, fill='both')
         self.sec_outer = outer
 
-        paned = tk.PanedWindow(outer, orient='horizontal', sashwidth=5, bg='#2c3e50')
+        paned = tk.PanedWindow(
+            outer,
+            orient='horizontal',
+            sashwidth=SEC_SASH_WIDTH,
+            bg=SEC_SASH_COLOR
+        )
         paned.pack(expand=True, fill='both')
         self.sec_paned = paned
 
