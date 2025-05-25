@@ -106,7 +106,23 @@ def save_department_mapping(mapping):
 
 
 def load_environments():
+    """Load environments from the API or local file."""
     envs = []
+    try:
+        resp = requests.get(f"{API_URL}/environments", timeout=5)
+        resp.raise_for_status()
+        envs = resp.json()
+        # normalize and store absolute image paths
+        for env in envs:
+            img = env.get("image_url") or env.get("image", "")
+            if img.startswith("/"):
+                img = API_HOST + img
+            env["image"] = img
+        save_environments(envs)
+        return envs
+    except Exception:
+        pass
+
     if os.path.exists(ENVIRONMENT_FILE):
         with open(ENVIRONMENT_FILE, "r", encoding="utf-8") as f:
             for line in f:
@@ -475,19 +491,9 @@ class FaceRecognitionApp:
         resp = requests.post(f"{API_URL}/environments", data=data, files=files)
         if resp.status_code == 201:
             # 3) Сервер вернул JSON с данными нового помещения
-            env = resp.json()
-            # env = {'id':..., 'name': name, 'location': loc, 'image_url': ...}
-
-            # 4) Обновляем локальный список и интерфейс
-            env_rec = {
-                'id': env.get('id'),
-                'name': env['name'],
-                'location': env['location'],
-                'image': API_HOST + env['image_url'] if env['image_url'].startswith('/') else env['image_url']
-            }
-            self.environments.append(env_rec)
-            save_environments(self.environments)
             self.env_status.config(text="Помещение добавлено на сервер")
+            # Обновляем локальный список из сервера
+            self.environments = load_environments()
             # Сброс полей формы
             self.env_name_entry.delete(0, 'end')
             self.env_loc_entry.delete(0, 'end')
@@ -531,6 +537,8 @@ class FaceRecognitionApp:
     def _refresh_env_catalog(self):
         for w in self.env_inner.winfo_children():
             w.destroy()
+        # always try to get fresh data from the server
+        self.environments = load_environments()
         for env in self.environments:
             rec = ttk.Frame(self.env_inner, padding=5)
             rec.pack(fill='x', pady=5)
@@ -561,6 +569,8 @@ class FaceRecognitionApp:
                     logging.error("Не удалось удалить помещение на сервере: %s", e)
             self.environments.remove(env)
             save_environments(self.environments)
+            # получить актуальный список
+            self.environments = load_environments()
             self._refresh_env_catalog()
 
     def _refresh_catalog(self):
