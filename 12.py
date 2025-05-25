@@ -15,13 +15,32 @@ import requests, io, datetime
 # Адрес API вашего сервера
 API_HOST = 'http://192.168.0.111:5001'     # или 'http://<IP_СЕРВЕРА>:5001'
 API_URL  = API_HOST + '/api'
-# Настройка логирования в файл
+
+# --- Настройка логирования ---
 logging.basicConfig(
-    filename='server/data/access.log',
     level=logging.INFO,
     format='%(asctime)s %(levelname)s: %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
+
+
+class ServerLogHandler(logging.Handler):
+    """Отправляет сообщения лога на сервер."""
+
+    def emit(self, record):
+        entry = {
+            'timestamp': datetime.datetime.utcnow().isoformat(),
+            'level': record.levelname,
+            'message': self.format(record)
+        }
+        try:
+            requests.post(f"{API_URL}/logs", json=entry, timeout=2)
+        except Exception as e:
+            # если сервер недоступен, просто выводим сообщение в консоль
+            print("Не удалось отправить лог:", e)
+
+
+logging.getLogger().addHandler(ServerLogHandler())
 
 # Папка для хранения эталонных лиц
 KNOWN_FACES_DIR = 'server/data/known_faces'
@@ -444,6 +463,7 @@ class FaceRecognitionApp:
         loc = self.env_loc_entry.get().strip()
         img_path = self.env_selected_image
         if not name or not loc or not img_path:
+            logging.warning("Попытка добавить помещение без всех обязательных полей")
             messagebox.showwarning("Ошибка", "Заполните все поля и выберите изображение")
             return
 
@@ -478,12 +498,14 @@ class FaceRecognitionApp:
 
         else:
             # Если сервер вернул ошибку
+            logging.error("Сервер ответил ошибкой при добавлении помещения: %s %s", resp.status_code, resp.text)
             messagebox.showerror("Ошибка сервера", f"{resp.status_code}: {resp.text}")
 
     def _upload_employee(self):
         name = self.name_entry.get().strip()
         dept = self.dept_var.get()
         if not name or not self.selected_file or not dept:
+            logging.warning("Попытка добавить сотрудника без всех обязательных данных")
             messagebox.showwarning("Ошибка", "Введите ФИО, подразделение и файл")
             return
 
@@ -503,6 +525,7 @@ class FaceRecognitionApp:
             self.name_entry.delete(0, 'end')
             self.selected_file = None
         else:
+            logging.error("Сервер ответил ошибкой при добавлении сотрудника: %s %s", resp.status_code, resp.text)
             messagebox.showerror("Ошибка сервера", f"Код {resp.status_code}: {resp.text}")
 
     def _refresh_env_catalog(self):
@@ -535,7 +558,7 @@ class FaceRecognitionApp:
                 try:
                     requests.delete(f"{API_URL}/environments/{env['id']}")
                 except Exception as e:
-                    print("Не удалось удалить помещение на сервере:", e)
+                    logging.error("Не удалось удалить помещение на сервере: %s", e)
             self.environments.remove(env)
             save_environments(self.environments)
             self._refresh_env_catalog()
@@ -571,6 +594,7 @@ class FaceRecognitionApp:
         try:
             requests.delete(f"{API_URL}/employees/{name}", timeout=5)
         except Exception as e:
+            logging.error("Не удалось удалить сотрудника: %s", e)
             messagebox.showerror("Ошибка", f"Не удалось удалить: {e}")
             return
         if name in self.employee_depts:
@@ -653,21 +677,9 @@ class FaceRecognitionApp:
         self.process_frame = not self.process_frame;
         self.root.after(30, self._update_frame)
     def _send_log(self, level: str, msg: str):
-        """
-        Отправляет одну строку лога на сервер.
-        level — 'INFO' или 'WARNING'
-        msg   — сообщение вида "Access granted for Иван Иванов (dept)"
-        """
-        entry = {
-            'timestamp': datetime.datetime.utcnow().isoformat(),
-            'level': level,
-            'message': msg
-        }
-        try:
-            requests.post(f"{API_URL}/logs", json=entry, timeout=2)
-        except Exception as e:
-            # на случай, если сервер недоступен, можно просто пропустить
-            print("Не удалось отправить лог:", e)
+        """Логирует событие и отправляет его на сервер."""
+        lvl = logging.INFO if level.upper() == 'INFO' else logging.WARNING
+        logging.log(lvl, msg)
 
     def on_closing(self):
         self._stop_camera();
