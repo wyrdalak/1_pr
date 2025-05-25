@@ -136,6 +136,13 @@ def add_assignment_record():
     _save_assignments()
     return jsonify({'status': 'ok'}), 201
 
+@app.route('/api/assignments/<int:idx>', methods=['DELETE'])
+def delete_assignment_record(idx):
+    if 0 <= idx < len(assignments):
+        assignments.pop(idx)
+        _save_assignments()
+    return jsonify({'status': 'ok'})
+
 # --- REST для зон ---
 @app.route('/api/environments/<eid>/zones', methods=['GET'])
 def get_zones(eid):
