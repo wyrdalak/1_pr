@@ -576,25 +576,24 @@ class FaceRecognitionApp:
         ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side="left", padx=10, pady=10)
         ttk.Button(nav, text="Завершить", command=self.on_closing).pack(side="right", padx=10, pady=10)
 
-        content = tk.Frame(f, bg='#2c3e50')
-        content.pack(expand=True, fill='both')
+        paned = tk.PanedWindow(f, orient='horizontal', sashwidth=5, bg='#2c3e50')
+        paned.pack(expand=True, fill='both')
 
-        left = tk.Frame(content, bg='#2c3e50', width=420)
-        left.pack(side='left', fill='y', padx=10, pady=10)
-        left.pack_propagate(False)
+        left = tk.Frame(paned, bg='#2c3e50')
         ttk.Label(left, text='Камера', style='Title.TLabel').pack(pady=5)
-        self.security_video = tk.Label(left, bg='#34495e', bd=2, relief='sunken',
-                                       width=600, height=500)
-        self.security_video.pack(side='top', pady=5)
+        self.security_video = tk.Label(left, bg='#34495e', bd=2, relief='sunken')
+        self.security_video.pack(expand=True, fill='both', padx=10, pady=10)
+        paned.add(left, minsize=200)
 
-        right = tk.Frame(content, bg='#2c3e50')
-        right.pack(side='left', expand=True, fill='both', padx=10, pady=10)
+        right = tk.Frame(paned, bg='#2c3e50')
         ttk.Label(right, text='Нарушения', style='Title.TLabel').pack(pady=5)
         self.warning_text = scrolledtext.ScrolledText(right, width=50, font=("Courier", 12))
-        self.warning_text.pack(expand=True, fill='both')
+        self.warning_text.pack(expand=True, fill='both', padx=10, pady=10)
+        paned.add(right, minsize=200)
 
-        bottom = tk.Frame(f, bg='#2c3e50')
-        bottom.pack(fill='both', padx=10, pady=(0,10))
+        bottom = tk.Frame(f, bg='#2c3e50', height=180)
+        bottom.pack(side='bottom', fill='both', padx=10, pady=(0,10))
+        bottom.pack_propagate(False)
         ttk.Label(bottom, text='Общие логи', style='Title.TLabel').pack(pady=5)
         self.general_log_text = scrolledtext.ScrolledText(bottom, height=10, font=("Courier", 12))
         self.general_log_text.pack(expand=True, fill='both')
@@ -1349,7 +1348,11 @@ class FaceRecognitionApp:
         if not ret:
             self.root.after(30, self._update_security_frame)
             return
-        frame = cv2.resize(frame, (600, 500))
+        w = self.security_video.winfo_width()
+        h = self.security_video.winfo_height()
+        if w < 10 or h < 10:
+            w, h = 600, 500
+        frame = cv2.resize(frame, (w, h))
         img = ImageTk.PhotoImage(image=Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
         self.security_video.imgtk = img
         self.security_video.config(image=img)
