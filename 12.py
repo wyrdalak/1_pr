@@ -14,6 +14,10 @@ import time
 import requests, io, datetime
 import json
 import math
+import torch
+
+# Допустимое отклонение глубины при проверке зоны
+DEPTH_TOLERANCE = 0.1
 
 # Адрес API вашего сервера
 API_HOST = 'http://192.168.0.111:5001'     # или 'http://<IP_СЕРВЕРА>:5001'
@@ -212,6 +216,10 @@ class FaceRecognitionApp:
         self.process_frame = True
         self.cap = None
         self.yolo = None
+        self.depth_model = None
+        self.depth_transform = None
+        self.zone_median_depth = []
+        self.depth_ready = False
         self.start_time = None
         self.fail_count = 0
         self.total_failed_identifications = 0
@@ -1402,6 +1410,34 @@ class FaceRecognitionApp:
         self.process_frame = not self.process_frame;
         self.root.after(30, self._update_frame)
 
+    def _init_depth_model(self):
+        """Load MiDaS small depth model via torch.hub."""
+        if self.depth_model is not None:
+            return
+        try:
+            self.depth_model = torch.hub.load("intel-isl/MiDaS", "MiDaS_small")
+            self.depth_model.eval()
+            transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
+            self.depth_transform = transforms.small_transform
+        except Exception as e:
+            logging.error(f"Failed to load depth model: {e}")
+            self.depth_model = None
+
+    def _estimate_depth(self, frame):
+        """Return normalized depth map for BGR frame."""
+        if self.depth_model is None or self.depth_transform is None:
+            return None
+        img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        input_batch = self.depth_transform(img).to(next(self.depth_model.parameters()).device)
+        with torch.no_grad():
+            prediction = self.depth_model(input_batch)
+            prediction = torch.nn.functional.interpolate(
+                prediction.unsqueeze(1), size=img.shape[:2], mode="bicubic", align_corners=False
+            )
+        depth = prediction.squeeze().cpu().numpy()
+        depth = cv2.normalize(depth, None, 0, 1, cv2.NORM_MINMAX)
+        return depth
+
     def _start_security_cam(self):
         if self.cap is None:
             self.cap = cv2.VideoCapture(0)
@@ -1410,6 +1446,8 @@ class FaceRecognitionApp:
                     self.yolo = YOLO(YOLO_WEIGHTS)
                 except Exception as e:
                     logging.error(f'Failed to load YOLO model: {e}')
+            self._init_depth_model()
+            self.zone_median_depth = []
             # выбираем первое доступное помещение для мониторинга
             if self.environments:
                 env = self.environments[0]
@@ -1453,7 +1491,7 @@ class FaceRecognitionApp:
         if w < 10 or h < 10:
             w, h = 600, 500
         frame = cv2.resize(frame, (w, h))
-        # Наложение зон из интерфейса руководителя и поиск людей
+        # Наложение зон и поиск людей с учетом глубины
         if self.security_zones:
             scale_x = w / ENV_IMAGE_SIZE[0]
             scale_y = h / ENV_IMAGE_SIZE[1]
@@ -1462,8 +1500,18 @@ class FaceRecognitionApp:
                 pts = [(int(p[0] * scale_x), int(p[1] * scale_y)) for p in z.get('points', [])]
                 if pts:
                     scaled_zones.append(pts)
-                    cv2.polylines(frame, [np.array(pts, dtype=np.int32)], True, (0, 0, 255), 2)
+            depth_map = self._estimate_depth(frame)
+            if depth_map is not None and not self.zone_median_depth:
+                for pts in scaled_zones:
+                    mask = np.zeros(depth_map.shape, dtype=np.uint8)
+                    cv2.fillPoly(mask, [np.array(pts, dtype=np.int32)], 1)
+                    vals = depth_map[mask == 1]
+                    self.zone_median_depth.append(float(np.median(vals)) if vals.size else 0.0)
+                self.depth_ready = True
 
+            zone_triggered = [False] * len(scaled_zones)
+
+            detections = []
             if self.yolo:
                 # disable verbose output from the YOLO model to avoid console
                 # spam like "0: 224x640 1 person" for each frame
@@ -1474,29 +1522,36 @@ class FaceRecognitionApp:
                         continue
                     x1, y1, x2, y2 = map(int, box.xyxy[0])
                     cx = (x1 + x2) // 2
-                    cy = (y1 + y2) // 2
-                    inside = False
-                    for pts in scaled_zones:
-                        if self._point_in_poly(cx, cy, pts):
-                            inside = True
-                            if time.time() - self.last_zone_warning > 5:
-                                self.last_zone_warning = time.time()
-                                self._send_log('WARNING', 'Person detected in restricted zone')
-                            break
-                    color = (0, 0, 255) if inside else (0, 255, 0)
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                    cy = y2  # bottom center
+                    detections.append(((x1, y1, x2, y2), (cx, cy)))
             else:
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 locs = face_recognition.face_locations(rgb)
                 for top, right, bottom, left in locs:
                     cx = (left + right) // 2
-                    cy = (top + bottom) // 2
-                    for pts in scaled_zones:
-                        if self._point_in_poly(cx, cy, pts):
-                            if time.time() - self.last_zone_warning > 5:
-                                self.last_zone_warning = time.time()
-                                self._send_log('WARNING', 'Person detected in restricted zone')
-                            break
+                    cy = bottom
+                    detections.append(((left, top, right, bottom), (cx, cy)))
+
+            for box, (cx, cy) in detections:
+                depth_val = depth_map[cy, cx] if depth_map is not None else None
+                for idx, pts in enumerate(scaled_zones):
+                    if cv2.pointPolygonTest(np.array(pts, dtype=np.int32), (cx, cy), False) > 0:
+                        if depth_val is not None and self.zone_median_depth:
+                            if abs(depth_val - self.zone_median_depth[idx]) < DEPTH_TOLERANCE:
+                                zone_triggered[idx] = True
+                                if time.time() - self.last_zone_warning > 5:
+                                    self.last_zone_warning = time.time()
+                                    self._send_log('WARNING', f'Person in zone {idx} at correct distance')
+                        break
+                x1, y1, x2, y2 = box
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+            for idx, pts in enumerate(scaled_zones):
+                color = (0, 255, 0) if zone_triggered[idx] else (0, 0, 255)
+                cv2.polylines(frame, [np.array(pts, dtype=np.int32)], True, color, 2)
+                if zone_triggered[idx]:
+                    tx, ty = pts[0]
+                    cv2.putText(frame, f"Zone {idx}: intruder", (tx, ty - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
         img = ImageTk.PhotoImage(image=Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
         self.security_video.imgtk = img
         self.security_video.config(image=img)
