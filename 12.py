@@ -573,15 +573,31 @@ class FaceRecognitionApp:
         self._apply_gradient_background(f)
         nav = ttk.Frame(f)
         nav.pack(fill="x")
-        ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side="left", padx=10,
-                      pady=10)
-        self.sort_var = tk.StringVar(value="По убыванию")
-        ttk.Label(nav, text="Сортировка:").pack(side="left", padx=5)
-        ttk.OptionMenu(nav, self.sort_var, "По убыванию", "По убыванию", "По возрастанию", command=lambda _=None: self._load_logs()).pack(side="left")
-        ttk.Label(f, text="Служба безопасности - Логи доступа", style="Title.TLabel").pack(pady=10)
-        self.log_text = scrolledtext.ScrolledText(f, width=100, height=30, font=("Courier", 12))
-        self.log_text.pack(expand=True, fill="both", padx=20, pady=10)
-        ttk.Button(f, text="Обновить", command=self._load_logs).pack(pady=5)
+        ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side="left", padx=10, pady=10)
+        ttk.Button(nav, text="Завершить", command=self.on_closing).pack(side="right", padx=10, pady=10)
+
+        content = tk.Frame(f, bg='#2c3e50')
+        content.pack(expand=True, fill='both')
+
+        left = tk.Frame(content, bg='#2c3e50', width=420)
+        left.pack(side='left', fill='y', padx=10, pady=10)
+        left.pack_propagate(False)
+        ttk.Label(left, text='Камера', style='Title.TLabel').pack(pady=5)
+        self.security_video = tk.Label(left, bg='#34495e', bd=2, relief='sunken',
+                                       width=600, height=500)
+        self.security_video.pack(side='top', pady=5)
+
+        right = tk.Frame(content, bg='#2c3e50')
+        right.pack(side='left', expand=True, fill='both', padx=10, pady=10)
+        ttk.Label(right, text='Нарушения', style='Title.TLabel').pack(pady=5)
+        self.warning_text = scrolledtext.ScrolledText(right, width=50, font=("Courier", 12))
+        self.warning_text.pack(expand=True, fill='both')
+
+        bottom = tk.Frame(f, bg='#2c3e50')
+        bottom.pack(fill='both', padx=10, pady=(0,10))
+        ttk.Label(bottom, text='Общие логи', style='Title.TLabel').pack(pady=5)
+        self.general_log_text = scrolledtext.ScrolledText(bottom, height=10, font=("Courier", 12))
+        self.general_log_text.pack(expand=True, fill='both')
 
     def _build_manager_frame(self):
         f = self.frame_manager
@@ -689,23 +705,29 @@ class FaceRecognitionApp:
         btn_frame.pack(pady=5)
         tk.Button(btn_frame, text='Сохранить зоны', command=self._save_zones).pack(side='left', padx=5)
 
-    def _load_logs(self):
-        # Определяем направление сортировки для сервера
-        order = 'asc' if self.sort_var.get() == "По возрастанию" else 'desc'
+    def _load_all_logs(self):
         try:
-            # Делаем запрос GET /api/logs?order=asc|desc
-            resp = requests.get(f"{API_URL}/logs", params={'order': order}, timeout=5)
+            resp = requests.get(f"{API_URL}/logs", params={'order': 'desc'}, timeout=5)
             resp.raise_for_status()
-            # Сервер возвращает JSON-массив строк
             lines = resp.json()
             data = "\n".join(lines)
         except Exception as e:
-            # На случай сетевых ошибок
             data = f"Не удалось получить логи: {e}"
 
-        # Обновляем виджет
-        self.log_text.delete('1.0', tk.END)
-        self.log_text.insert('1.0', data)
+        self.general_log_text.delete('1.0', tk.END)
+        self.general_log_text.insert('1.0', data)
+
+    def _load_warning_logs(self):
+        try:
+            resp = requests.get(f"{API_URL}/logs", params={'order': 'desc'}, timeout=5)
+            resp.raise_for_status()
+            lines = [l for l in resp.json() if 'WARNING' in l]
+            data = "\n".join(lines)
+        except Exception as e:
+            data = f"Не удалось получить логи: {e}"
+
+        self.warning_text.delete('1.0', tk.END)
+        self.warning_text.insert('1.0', data)
 
     def _show_frame(self, target):
         for frm in (self.frame_role, self.frame_employee, self.frame_admin_choice, self.frame_admin,
@@ -719,6 +741,11 @@ class FaceRecognitionApp:
             self._reset_employee_screen()
         else:
             self._stop_camera()
+        if target == self.frame_security:
+            self._start_security_cam()
+            self._load_warning_logs()
+            self._load_all_logs()
+            return
         if target == self.frame_admin:
             self._refresh_catalog()
             return
@@ -728,9 +755,6 @@ class FaceRecognitionApp:
             self.env_image_label.config(text="")
             self.env_selected_image = ''
             self._refresh_env_catalog()
-            return
-        if target == self.frame_security:
-            self._load_logs();
             return
         if target == self.frame_manager:
             self._prepare_manager()
@@ -1312,6 +1336,24 @@ class FaceRecognitionApp:
                     self.status_label.config(text="Лицо не опознано. Попробуйте снова.")
         self.process_frame = not self.process_frame;
         self.root.after(30, self._update_frame)
+
+    def _start_security_cam(self):
+        if self.cap is None:
+            self.cap = cv2.VideoCapture(1)
+            self._update_security_frame()
+
+    def _update_security_frame(self):
+        if self.cap is None:
+            return
+        ret, frame = self.cap.read()
+        if not ret:
+            self.root.after(30, self._update_security_frame)
+            return
+        frame = cv2.resize(frame, (600, 500))
+        img = ImageTk.PhotoImage(image=Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
+        self.security_video.imgtk = img
+        self.security_video.config(image=img)
+        self.root.after(30, self._update_security_frame)
     def _send_log(self, level: str, msg: str):
         """Логирует событие и отправляет его на сервер."""
         lvl = logging.INFO if level.upper() == 'INFO' else logging.WARNING
