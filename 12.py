@@ -621,11 +621,16 @@ class FaceRecognitionApp:
         ttk.Button(time_frame, text='Сохранить допуск', command=self._assign_employee).grid(row=2, column=0, columnspan=2, pady=5)
         canvas_frame = tk.Frame(f, bg='#2c3e50')
         canvas_frame.pack(expand=True, fill='both')
+        canvas_frame.columnconfigure(0, weight=1)
+        canvas_frame.columnconfigure(1, weight=0)
+        canvas_frame.columnconfigure(2, weight=0)
+        canvas_frame.columnconfigure(3, weight=1)
 
+        tk.Frame(canvas_frame).grid(row=0, column=0, sticky='nsew')
         left_area = tk.Frame(canvas_frame, bg='#2c3e50')
-        left_area.pack(side='left', expand=True, fill='both')
+        left_area.grid(row=0, column=1, sticky='n')
         toolbar = tk.Frame(left_area, bg='#2c3e50')
-        toolbar.pack(side='top', pady=(5,0))
+        toolbar.pack(pady=(5,0), anchor='n')
         self.zone_tool_buttons = {}
         btn_opts = {'width': 32, 'height': 32}
         self.zone_tool_buttons['rect'] = tk.Button(toolbar, image=self.icon_rect,
@@ -654,11 +659,11 @@ class FaceRecognitionApp:
         self.default_tool_bg = self.zone_tool_buttons['rect'].cget('bg')
 
         canvas_holder = tk.Frame(left_area, bg='#2c3e50')
-        canvas_holder.pack(side='top', expand=True, fill='both', pady=(0,5))
+        canvas_holder.pack(expand=True, fill='both', pady=(0,5))
         self.zone_canvas = tk.Canvas(canvas_holder, bg='#2c3e50',
                                      width=ENV_IMAGE_SIZE[0], height=ENV_IMAGE_SIZE[1],
                                      highlightthickness=1, highlightbackground='white')
-        self.zone_canvas.place(relx=0.5, rely=0, anchor='n')
+        self.zone_canvas.pack(anchor='n')
         self.zone_canvas.bind('<ButtonPress-1>', self._zone_press)
         self.zone_canvas.bind('<B1-Motion>', self._zone_drag)
         self.zone_canvas.bind('<ButtonRelease-1>', self._zone_release)
@@ -671,11 +676,13 @@ class FaceRecognitionApp:
         self._set_zone_tool('rect')
 
         right_area = ttk.Frame(canvas_frame)
-        right_area.pack(side='right', fill='y', padx=10, pady=5)
+        right_area.grid(row=0, column=2, sticky='n', padx=10, pady=5)
         ttk.Label(right_area, text='Выданные допуски:').pack(anchor='n')
         self.assign_list = tk.Listbox(right_area, height=20)
         self.assign_list.pack(fill='y', padx=5)
         ttk.Button(right_area, text='Удалить', command=self._delete_assignment).pack(pady=5)
+
+        tk.Frame(canvas_frame).grid(row=0, column=3, sticky='nsew')
 
         btn_frame = ttk.Frame(f)
         btn_frame.pack(pady=5)
