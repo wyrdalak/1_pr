@@ -625,7 +625,7 @@ class FaceRecognitionApp:
         left_area = tk.Frame(canvas_frame, bg='#2c3e50')
         left_area.pack(side='left', expand=True, fill='both')
         toolbar = tk.Frame(left_area, bg='#2c3e50')
-        toolbar.pack(side='top', pady=(5,0))
+        toolbar.pack(side='top', pady=(5,0), anchor='n')
         self.zone_tool_buttons = {}
         btn_opts = {'width': 32, 'height': 32}
         self.zone_tool_buttons['rect'] = tk.Button(toolbar, image=self.icon_rect,
@@ -654,7 +654,7 @@ class FaceRecognitionApp:
         self.default_tool_bg = self.zone_tool_buttons['rect'].cget('bg')
 
         canvas_holder = tk.Frame(left_area, bg='#2c3e50')
-        canvas_holder.pack(side='top', expand=True, fill='both', pady=(0,5))
+        canvas_holder.pack(side='top', expand=True, fill='both', pady=(0,5), anchor='n')
         self.zone_canvas = tk.Canvas(canvas_holder, bg='#2c3e50',
                                      width=ENV_IMAGE_SIZE[0], height=ENV_IMAGE_SIZE[1],
                                      highlightthickness=1, highlightbackground='white')
