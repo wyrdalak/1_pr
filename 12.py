@@ -213,6 +213,10 @@ class FaceRecognitionApp:
         self.fail_count = 0
         self.total_failed_identifications = 0
         self.auth_timeout = 5
+        # Зоны и параметры для интерфейса службы безопасности
+        self.security_zones = []
+        self.security_env_id = None
+        self.last_zone_warning = 0
 
         self.root = tk.Tk()
         self.root.title("Система распознавания лиц")
@@ -1380,6 +1384,17 @@ class FaceRecognitionApp:
     def _start_security_cam(self):
         if self.cap is None:
             self.cap = cv2.VideoCapture(0)
+            # выбираем первое доступное помещение для мониторинга
+            if self.environments:
+                env = self.environments[0]
+                self.security_env_id = env.get('id')
+                if self.security_env_id:
+                    try:
+                        resp = requests.get(f"{API_URL}/environments/{self.security_env_id}/zones", timeout=5)
+                        if resp.status_code == 200:
+                            self.security_zones = resp.json()
+                    except Exception:
+                        self.security_zones = []
             self._update_security_frame()
 
     def _limit_security_heights(self, event=None):
@@ -1412,6 +1427,27 @@ class FaceRecognitionApp:
         if w < 10 or h < 10:
             w, h = 600, 500
         frame = cv2.resize(frame, (w, h))
+        # Наложение зон из интерфейса руководителя
+        if self.security_zones:
+            scale_x = w / ENV_IMAGE_SIZE[0]
+            scale_y = h / ENV_IMAGE_SIZE[1]
+            for z in self.security_zones:
+                pts = [(int(p[0] * scale_x), int(p[1] * scale_y)) for p in z.get('points', [])]
+                if pts:
+                    cv2.polylines(frame, [np.array(pts, dtype=np.int32)], True, (0, 0, 255), 2)
+            # Детекция лиц и проверка попадания в зону
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            locs = face_recognition.face_locations(rgb)
+            for top, right, bottom, left in locs:
+                cx = (left + right) // 2
+                cy = (top + bottom) // 2
+                for z in self.security_zones:
+                    pts = [(int(p[0] * scale_x), int(p[1] * scale_y)) for p in z.get('points', [])]
+                    if pts and self._point_in_poly(cx, cy, pts):
+                        if time.time() - self.last_zone_warning > 5:
+                            self.last_zone_warning = time.time()
+                            self._send_log('WARNING', 'Person detected in restricted zone')
+                        break
         img = ImageTk.PhotoImage(image=Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
         self.security_video.imgtk = img
         self.security_video.config(image=img)
