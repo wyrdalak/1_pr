@@ -677,8 +677,12 @@ class FaceRecognitionApp:
         right_area = ttk.Frame(content_frame)
         right_area.pack(side='left', fill='y', pady=5,padx=(0,10))
         ttk.Label(right_area, text='Выданные допуски:').pack(anchor='n')
-        self.assign_list = tk.Listbox(right_area, height=30,width=30)
-        self.assign_list.pack(fill='both', expand=True,padx=5)
+        self.assign_list = tk.Listbox(right_area, height=30, width=30)
+        self.assign_scroll_x = ttk.Scrollbar(right_area, orient='horizontal',
+                                             command=self.assign_list.xview)
+        self.assign_list.configure(xscrollcommand=self.assign_scroll_x.set)
+        self.assign_list.pack(fill='both', expand=True, padx=5)
+        self.assign_scroll_x.pack(fill='x', padx=5)
         ttk.Button(right_area, text='Удалить', command=self._delete_assignment).pack(pady=5)
 
         btn_frame = ttk.Frame(f)
@@ -1230,7 +1234,7 @@ class FaceRecognitionApp:
 
     def _start_employee_cam(self):
         if self.cap is None:
-            self.cap = cv2.VideoCapture(0)
+            self.cap = cv2.VideoCapture(1)
             self.start_time = time.time()
             self.fail_count = 0
             self.attempts_label.config(text="Неудачные попытки: 0")
