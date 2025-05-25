@@ -197,6 +197,7 @@ class FaceRecognitionApp:
         self.root.attributes('-fullscreen', True)
         self.style = ttk.Style(self.root)
         self._setup_style()
+        self._create_icons()
 
         # Фреймы ролей
         self.frame_role = ttk.Frame(self.root)
@@ -275,6 +276,38 @@ class FaceRecognitionApp:
         c.create_text(width / 2, height / 2, text=text, font=font, fill='white')
         c.bind('<Button-1>', lambda e: command())
         return c
+
+    def _create_icons(self):
+        """Create small icons used on the zone toolbar."""
+        def rect_icon():
+            img = tk.PhotoImage(width=16, height=16)
+            for x in range(16):
+                for y in range(16):
+                    if 2 <= x <= 13 and 2 <= y <= 13:
+                        img.put('#cccccc', (x, y))
+                    if x in (2, 13) or y in (2, 13):
+                        img.put('#000000', (x, y))
+            return img
+
+        def poly_icon():
+            img = tk.PhotoImage(width=16, height=16)
+            for x in range(16):
+                for y in range(16):
+                    if abs(x-8) + abs(y-8) <= 6:
+                        color = '#cccccc' if abs(x-8) + abs(y-8) < 6 else '#000000'
+                        img.put(color, (x, y))
+            return img
+
+        def del_icon():
+            img = tk.PhotoImage(width=16, height=16)
+            for i in range(16):
+                img.put('#ff0000', (i, i))
+                img.put('#ff0000', (15-i, i))
+            return img
+
+        self.icon_rect = rect_icon()
+        self.icon_poly = poly_icon()
+        self.icon_delete = del_icon()
 
     def _build_role_frame(self):
         f = self.frame_role
@@ -489,12 +522,21 @@ class FaceRecognitionApp:
         self.exit_entry.grid(row=3, column=1, sticky='w')
         ttk.Button(frm, text='Назначить', command=self._assign_employee).grid(row=4, column=0, columnspan=2, pady=5)
 
+        toolbar = ttk.Frame(f)
+        toolbar.pack(pady=5)
+        ttk.Button(toolbar, image=self.icon_rect, command=lambda: self._set_zone_tool('rect')).pack(side='left', padx=2)
+        ttk.Button(toolbar, image=self.icon_poly, command=lambda: self._set_zone_tool('poly')).pack(side='left', padx=2)
+        ttk.Button(toolbar, image=self.icon_delete, command=lambda: self._set_zone_tool('delete')).pack(side='left', padx=2)
+
         self.zone_canvas = tk.Canvas(f, bg='#34495e', width=600, height=400)
         self.zone_canvas.pack(expand=True, fill='both', padx=20, pady=10)
-        self.zone_canvas.bind('<ButtonPress-1>', self._start_zone)
-        self.zone_canvas.bind('<B1-Motion>', self._draw_zone)
-        self.zone_canvas.bind('<ButtonRelease-1>', self._end_zone)
+        self.zone_canvas.bind('<ButtonPress-1>', self._zone_press)
+        self.zone_canvas.bind('<B1-Motion>', self._zone_drag)
+        self.zone_canvas.bind('<ButtonRelease-1>', self._zone_release)
         self.current_rect = None
+        self.creating_poly = None
+        self.dragging_handle = None
+        self.zone_tool = 'rect'
         self.zones = []
         ttk.Button(f, text='Сохранить зоны', command=self._save_zones).pack(pady=5)
 
@@ -719,6 +761,10 @@ class FaceRecognitionApp:
         self.enter_entry.delete(0, 'end')
         self.exit_entry.delete(0, 'end')
         self.zones = []
+        self.zone_tool = 'rect'
+        self.creating_poly = None
+        self.current_rect = None
+        self.dragging_handle = None
 
     def _load_manager_env(self, *_):
         env = next((e for e in self.environments if e['name'] == self.manager_env.get()), None)
@@ -745,24 +791,101 @@ class FaceRecognitionApp:
                         self.zones = resp.json()
                 except Exception:
                     pass
+            processed = []
             for z in self.zones:
-                self.zone_canvas.create_rectangle(*z, outline='red')
+                if isinstance(z, dict):
+                    pts = [tuple(p) for p in z.get('points', [])]
+                    typ = z.get('type', 'rect')
+                else:
+                    pts = [(z[0], z[1]), (z[2], z[1]), (z[2], z[3]), (z[0], z[3])]
+                    typ = 'rect'
+                shape = self.zone_canvas.create_polygon(*self._flatten(pts), outline='red', fill='blue', stipple='gray50')
+                handles = [self._create_handle(px, py) for px, py in pts]
+                processed.append({'type': typ, 'points': pts, 'shape': shape, 'handles': handles})
+            self.zones = processed
         except Exception:
             pass
 
-    def _start_zone(self, event):
-        self.zone_start = (event.x, event.y)
-        self.current_rect = self.zone_canvas.create_rectangle(event.x, event.y, event.x, event.y, outline='red')
+    def _set_zone_tool(self, tool):
+        """Switch active tool for zone editing."""
+        self.zone_tool = tool
 
-    def _draw_zone(self, event):
-        if self.current_rect:
-            self.zone_canvas.coords(self.current_rect, self.zone_start[0], self.zone_start[1], event.x, event.y)
+    def _create_handle(self, x, y):
+        return self.zone_canvas.create_oval(x-4, y-4, x+4, y+4, fill='yellow', outline='black', tags='handle')
 
-    def _end_zone(self, event):
+    def _point_in_poly(self, x, y, pts):
+        inside = False
+        n = len(pts)
+        px, py = pts[0]
+        for i in range(1, n+1):
+            nx, ny = pts[i % n]
+            if ((py > y) != (ny > y)) and (x < (nx-px)*(y-py)/(ny-py+1e-9)+px):
+                inside = not inside
+            px, py = nx, ny
+        return inside
+
+    def _zone_press(self, event):
+        item = self.zone_canvas.find_withtag('current')
+        for z in self.zones:
+            if item and item[0] in z.get('handles', []):
+                self.dragging_handle = (z, z['handles'].index(item[0]))
+                return
+        if self.zone_tool == 'delete':
+            self._delete_zone_at(event.x, event.y)
+            return
+        if self.zone_tool == 'rect':
+            self.zone_start = (event.x, event.y)
+            self.current_rect = self.zone_canvas.create_polygon(event.x, event.y, event.x, event.y, event.x, event.y, event.x, event.y,
+                                                                outline='red', fill='blue', stipple='gray50')
+        elif self.zone_tool == 'poly':
+            if not self.creating_poly:
+                self.creating_poly = {'points': [(event.x, event.y)], 'handles': [self._create_handle(event.x, event.y)], 'temp': []}
+            else:
+                self.creating_poly['points'].append((event.x, event.y))
+                self.creating_poly['handles'].append(self._create_handle(event.x, event.y))
+                if len(self.creating_poly['points']) == 4:
+                    pts = self.creating_poly['points']
+                    poly = self.zone_canvas.create_polygon(*self._flatten(pts), outline='red', fill='blue', stipple='gray50')
+                    zone = {'type': 'poly', 'points': pts, 'shape': poly, 'handles': self.creating_poly['handles']}
+                    self.zones.append(zone)
+                    self.creating_poly = None
+
+    def _zone_drag(self, event):
+        if self.dragging_handle:
+            z, idx = self.dragging_handle
+            z['points'][idx] = (event.x, event.y)
+            self.zone_canvas.coords(z['handles'][idx], event.x-4, event.y-4, event.x+4, event.y+4)
+            self.zone_canvas.coords(z['shape'], *self._flatten(z['points']))
+        elif self.current_rect:
+            x0, y0 = self.zone_start
+            pts = [(x0, y0), (event.x, y0), (event.x, event.y), (x0, event.y)]
+            self.zone_canvas.coords(self.current_rect, *self._flatten(pts))
+
+    def _zone_release(self, event):
+        if self.dragging_handle:
+            self.dragging_handle = None
+            return
         if self.current_rect:
-            coords = [self.zone_start[0], self.zone_start[1], event.x, event.y]
-            self.zones.append(coords)
+            x0, y0 = self.zone_start
+            pts = [(x0, y0), (event.x, y0), (event.x, event.y), (x0, event.y)]
+            handles = [self._create_handle(px, py) for px, py in pts]
+            self.zone_canvas.delete(self.current_rect)
+            poly = self.zone_canvas.create_polygon(*self._flatten(pts), outline='red', fill='blue', stipple='gray50')
+            self.zones.append({'type': 'rect', 'points': pts, 'shape': poly, 'handles': handles})
             self.current_rect = None
+
+    def _delete_zone_at(self, x, y):
+        for z in list(self.zones):
+            if self._point_in_poly(x, y, z['points']):
+                for h in z['handles']:
+                    self.zone_canvas.delete(h)
+                self.zone_canvas.delete(z['shape'])
+                self.zones.remove(z)
+                break
+
+    @staticmethod
+    def _flatten(pts):
+        return [coord for pt in pts for coord in pt]
 
     def _save_zones(self):
         env = next((e for e in self.environments if e['name'] == self.manager_env.get()), None)
@@ -770,7 +893,8 @@ class FaceRecognitionApp:
             messagebox.showwarning('Ошибка', 'Выберите помещение')
             return
         try:
-            requests.post(f"{API_URL}/environments/{env['id']}/zones", json={'zones': self.zones}, timeout=5)
+            data = [{'type': z['type'], 'points': z['points']} for z in self.zones]
+            requests.post(f"{API_URL}/environments/{env['id']}/zones", json={'zones': data}, timeout=5)
             messagebox.showinfo('Сохранено', 'Зоны сохранены')
         except Exception as e:
             messagebox.showerror('Ошибка', str(e))
