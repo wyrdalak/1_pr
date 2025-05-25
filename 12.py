@@ -209,6 +209,7 @@ class FaceRecognitionApp:
         self.env_selected_image = ''
         self.process_frame = True
         self.cap = None
+        self.cam_after = None
         self.start_time = None
         self.fail_count = 0
         self.total_failed_identifications = 0
@@ -557,7 +558,7 @@ class FaceRecognitionApp:
         env_menu.delete(0, 'end')
         names = [e['name'] for e in self.environments]
         for n in names:
-            env_menu.add_command(label=n, command=lambda v=n: self.employee_env.set(v))
+            env_menu.add_command(label=n, command=tk._setit(self.employee_env, n))
         if names:
             self.employee_env.set(names[0])
         else:
@@ -583,6 +584,13 @@ class FaceRecognitionApp:
         nav.pack(fill="x")
         ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side="left", padx=10, pady=10)
         ttk.Button(nav, text="Завершить", command=self.on_closing).pack(side="right", padx=10, pady=10)
+        env_sel = ttk.Frame(nav)
+        env_sel.pack(side="left", padx=10)
+        ttk.Label(env_sel, text='Помещение:').pack(side='left')
+        self.security_env = tk.StringVar()
+        self.security_env.trace_add('write', self._on_select_security_env)
+        self.sec_env_menu = ttk.OptionMenu(env_sel, self.security_env, '')
+        self.sec_env_menu.pack(side='left')
         self.sec_nav = nav
 
         outer = tk.PanedWindow(
@@ -782,7 +790,7 @@ class FaceRecognitionApp:
         else:
             self._stop_camera()
         if target == self.frame_security:
-            self._start_security_cam()
+            self._prepare_security()
             self._load_warning_logs()
             self._load_all_logs()
             return
@@ -978,7 +986,7 @@ class FaceRecognitionApp:
         env_menu.delete(0, 'end')
         names = [e['name'] for e in self.environments]
         for n in names:
-            env_menu.add_command(label=n, command=lambda v=n: (self.manager_env.set(v), self._load_manager_env()))
+            env_menu.add_command(label=n, command=tk._setit(self.manager_env, n, self._load_manager_env))
         if names:
             self.manager_env.set(names[0])
             self._load_manager_env()
@@ -990,6 +998,24 @@ class FaceRecognitionApp:
         self.current_rect = None
         self.dragging_handle = None
         self._refresh_assignments()
+
+    def _prepare_security(self):
+        """Refresh security environment menu and start camera."""
+        self._stop_camera()
+        self.environments = load_environments()
+        menu = self.sec_env_menu['menu']
+        menu.delete(0, 'end')
+        names = [e['name'] for e in self.environments]
+        for n in names:
+            menu.add_command(label=n, command=tk._setit(self.security_env, n))
+        if names:
+            self.security_env.set(names[0])
+        else:
+            self.security_env.set('')
+
+    def _on_select_security_env(self, *_):
+        self._stop_camera()
+        self._start_security_cam()
 
     def _load_manager_env(self, *_):
         env = next((e for e in self.environments if e['name'] == self.manager_env.get()), None)
@@ -1306,7 +1332,15 @@ class FaceRecognitionApp:
             self._update_frame()
 
     def _stop_camera(self):
-        if self.cap: self.cap.release(); self.cap = None
+        if self.cam_after is not None:
+            try:
+                self.root.after_cancel(self.cam_after)
+            except Exception:
+                pass
+            self.cam_after = None
+        if self.cap:
+            self.cap.release()
+            self.cap = None
 
     def _show_access_granted(self):
         self._stop_camera();
@@ -1338,11 +1372,15 @@ class FaceRecognitionApp:
             self.last_emp_check = time.time()
             self._sync_employees()
         ret, frame = self.cap.read();
-        if not ret: self.root.after(30, self._update_frame); return
+        if not ret:
+            self.cam_after = self.root.after(30, self._update_frame)
+            return
         img = ImageTk.PhotoImage(image=Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
         self.video_label.imgtk = img;
         self.video_label.config(image=img)
-        if time.time() - self.start_time < 1: self.root.after(30, self._update_frame); return
+        if time.time() - self.start_time < 1:
+            self.cam_after = self.root.after(30, self._update_frame)
+            return
         if self.process_frame:
             small = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25);
             rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
@@ -1374,12 +1412,19 @@ class FaceRecognitionApp:
                     return
                 else:
                     self.status_label.config(text="Лицо не опознано. Попробуйте снова.")
-        self.process_frame = not self.process_frame;
-        self.root.after(30, self._update_frame)
+        self.process_frame = not self.process_frame
+        self.cam_after = self.root.after(30, self._update_frame)
 
     def _start_security_cam(self):
         if self.cap is None:
-            self.cap = cv2.VideoCapture(1)
+            idx = 1
+            env = next((e for e in self.environments if e['name'] == self.security_env.get()), None)
+            if env is not None:
+                try:
+                    idx = int(env.get('camera_index', 1))
+                except Exception:
+                    idx = 1
+            self.cap = cv2.VideoCapture(idx)
             self._update_security_frame()
 
     def _limit_security_heights(self, event=None):
@@ -1405,7 +1450,7 @@ class FaceRecognitionApp:
             return
         ret, frame = self.cap.read()
         if not ret:
-            self.root.after(30, self._update_security_frame)
+            self.cam_after = self.root.after(30, self._update_security_frame)
             return
         w = self.security_video.winfo_width()
         h = self.security_video.winfo_height()
@@ -1415,7 +1460,7 @@ class FaceRecognitionApp:
         img = ImageTk.PhotoImage(image=Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
         self.security_video.imgtk = img
         self.security_video.config(image=img)
-        self.root.after(30, self._update_security_frame)
+        self.cam_after = self.root.after(30, self._update_security_frame)
     def _send_log(self, level: str, msg: str):
         """Логирует событие и отправляет его на сервер."""
         lvl = logging.INFO if level.upper() == 'INFO' else logging.WARNING
