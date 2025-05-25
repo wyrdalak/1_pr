@@ -750,6 +750,7 @@ class FaceRecognitionApp:
 
         btn_frame = ttk.Frame(f)
         btn_frame.pack(pady=5)
+        tk.Button(btn_frame, text='Редактировать зоны', command=self._edit_saved_zones).pack(side='left', padx=5)
         tk.Button(btn_frame, text='Сохранить зоны', command=self._save_zones).pack(side='left', padx=5)
 
     def _load_all_logs(self):
@@ -1228,6 +1229,11 @@ class FaceRecognitionApp:
     @staticmethod
     def _flatten(pts):
         return [coord for pt in pts for coord in pt]
+
+    def _edit_saved_zones(self):
+        """Reload zones for the selected environment and enable editing."""
+        self._load_manager_env()
+        self._set_zone_tool('move')
 
     def _save_zones(self):
         env = next((e for e in self.environments if e['name'] == self.manager_env.get()), None)
