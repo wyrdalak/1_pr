@@ -576,28 +576,33 @@ class FaceRecognitionApp:
         ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side="left", padx=10, pady=10)
         ttk.Button(nav, text="Завершить", command=self.on_closing).pack(side="right", padx=10, pady=10)
 
-        content = tk.Frame(f, bg='#2c3e50')
-        content.pack(expand=True, fill='both')
+        paned = tk.PanedWindow(f, orient='horizontal', sashwidth=5, bg='#2c3e50')
+        paned.pack(side='top', expand=True, fill='both')
+        self.security_paned = paned
 
-        left = tk.Frame(content, bg='#2c3e50', width=420)
-        left.pack(side='left', fill='y', padx=10, pady=10)
-        left.pack_propagate(False)
+        left = tk.Frame(paned, bg='#2c3e50')
         ttk.Label(left, text='Камера', style='Title.TLabel').pack(pady=5)
-        self.security_video = tk.Label(left, bg='#34495e', bd=2, relief='sunken',
-                                       width=600, height=500)
-        self.security_video.pack(side='top', pady=5)
+        self.security_video = tk.Label(left, bg='#34495e', bd=2, relief='sunken')
+        self.security_video.pack(expand=True, fill='both', padx=10, pady=10)
+        paned.add(left, minsize=200)
+        self.pane_left = left
 
-        right = tk.Frame(content, bg='#2c3e50')
-        right.pack(side='left', expand=True, fill='both', padx=10, pady=10)
+        right = tk.Frame(paned, bg='#2c3e50')
         ttk.Label(right, text='Нарушения', style='Title.TLabel').pack(pady=5)
         self.warning_text = scrolledtext.ScrolledText(right, width=50, font=("Courier", 12))
-        self.warning_text.pack(expand=True, fill='both')
+        self.warning_text.pack(expand=True, fill='both', padx=10, pady=10)
+        paned.add(right, minsize=200)
+        self.pane_right = right
 
-        bottom = tk.Frame(f, bg='#2c3e50')
-        bottom.pack(fill='both', padx=10, pady=(0,10))
+        bottom = tk.Frame(f, bg='#2c3e50', height=150)
+        bottom.pack(side='bottom', fill='x', padx=10, pady=(0,10))
+        bottom.pack_propagate(False)
         ttk.Label(bottom, text='Общие логи', style='Title.TLabel').pack(pady=5)
         self.general_log_text = scrolledtext.ScrolledText(bottom, height=10, font=("Courier", 12))
         self.general_log_text.pack(expand=True, fill='both')
+
+        self.root.bind('<Configure>', self._limit_pane_sizes)
+        paned.bind('<ButtonRelease-1>', self._limit_pane_sizes)
 
     def _build_manager_frame(self):
         f = self.frame_manager
@@ -1349,11 +1354,41 @@ class FaceRecognitionApp:
         if not ret:
             self.root.after(30, self._update_security_frame)
             return
-        frame = cv2.resize(frame, (600, 500))
+        w = self.security_video.winfo_width()
+        h = self.security_video.winfo_height()
+        if w < 10 or h < 10:
+            w, h = 600, 500
+        frame = cv2.resize(frame, (w, h))
         img = ImageTk.PhotoImage(image=Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
         self.security_video.imgtk = img
         self.security_video.config(image=img)
         self.root.after(30, self._update_security_frame)
+
+    def _limit_pane_sizes(self, event=None):
+        if not hasattr(self, 'security_paned'):
+            return
+        paned = self.security_paned
+        if not paned.winfo_ismapped():
+            return
+        total = paned.winfo_width()
+        sash = paned.sash_coord(0)[0]
+        sash_w = int(paned.cget('sashwidth'))
+        min_left, max_left = 200, 800
+        min_right, max_right = 200, 800
+        left_w = sash
+        right_w = total - sash - sash_w
+        if left_w < min_left:
+            paned.sash_place(0, min_left, 0)
+            left_w = min_left
+        elif left_w > max_left:
+            paned.sash_place(0, max_left, 0)
+            left_w = max_left
+        right_w = total - left_w - sash_w
+        if right_w < min_right:
+            paned.sash_place(0, total - min_right - sash_w, 0)
+        elif right_w > max_right:
+            paned.sash_place(0, total - max_right - sash_w, 0)
+
     def _send_log(self, level: str, msg: str):
         """Логирует событие и отправляет его на сервер."""
         lvl = logging.INFO if level.upper() == 'INFO' else logging.WARNING
