@@ -221,6 +221,7 @@ class FaceRecognitionApp:
         self.security_env_id = None
         self.last_zone_warning = 0
         self.last_fire_warning = 0
+        self.last_face_mismatch = 0
 
         self.root = tk.Tk()
         self.root.title("Система распознавания лиц")
@@ -1338,6 +1339,13 @@ class FaceRecognitionApp:
             return True
         return False
 
+    def _has_permission_env_id(self, name, env_id):
+        """Check permission using environment ID."""
+        env = next((e for e in self.environments if e.get('id') == env_id), None)
+        if not env:
+            return False
+        return self._has_permission(name, env['name'])
+
     def _start_employee_cam(self):
         if self.cap is None:
             self.cap = cv2.VideoCapture(1)
@@ -1516,6 +1524,31 @@ class FaceRecognitionApp:
                                 self.last_zone_warning = time.time()
                                 self._send_log('WARNING', 'Person detected in restricted zone')
                             break
+        # Распознавание лиц и сверка с допусками
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        locs = face_recognition.face_locations(rgb)
+        encs = face_recognition.face_encodings(rgb, locs)
+        for (top, right, bottom, left), enc in zip(locs, encs):
+            matches = face_recognition.compare_faces(self.known_face_encodings, enc)
+            name = 'Unknown'
+            if len(matches) > 0:
+                dists = face_recognition.face_distance(self.known_face_encodings, enc)
+                best = np.argmin(dists)
+                if matches[best]:
+                    name = self.known_face_names[best]
+            authorized = False
+            if name != 'Unknown' and self.security_env_id:
+                authorized = self._has_permission_env_id(name, self.security_env_id)
+            color = (0, 255, 0) if authorized else (0, 0, 255)
+            cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
+            cv2.putText(frame, name, (left, top - 5), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6, color, 2)
+            if name == 'Unknown' and not authorized:
+                if time.time() - self.last_face_mismatch > 5:
+                    self.last_face_mismatch = time.time()
+                    env = next((e for e in self.environments if e.get('id') == self.security_env_id), {})
+                    env_name = env.get('name', 'Unknown environment')
+                    self._send_log('WARNING', f'Face mismatch in {env_name}: {name} has no access')
         for x1, y1, x2, y2 in fire_boxes:
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 2)
             cv2.putText(frame, 'FIRE', (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX,
