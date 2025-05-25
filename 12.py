@@ -220,6 +220,7 @@ class FaceRecognitionApp:
         self.security_zones = []
         self.security_env_id = None
         self.last_zone_warning = 0
+        self.last_fire_warning = 0
 
         self.root = tk.Tk()
         self.root.title("Система распознавания лиц")
@@ -1079,6 +1080,22 @@ class FaceRecognitionApp:
             px, py = nx, ny
         return inside
 
+    def _detect_fire(self, frame):
+        """Return list of bounding boxes where fire-like colors are detected."""
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        lower = np.array([0, 150, 150])
+        upper = np.array([35, 255, 255])
+        mask = cv2.inRange(hsv, lower, upper)
+        mask = cv2.erode(mask, None, iterations=2)
+        mask = cv2.dilate(mask, None, iterations=2)
+        cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        boxes = []
+        for c in cnts:
+            if cv2.contourArea(c) > 1000:
+                x, y, w, h = cv2.boundingRect(c)
+                boxes.append((x, y, x + w, y + h))
+        return boxes
+
     def _find_near_handle(self, x, y, radius=15):
         """Return (zone, index) of handle close to (x,y) or None."""
         if self.creating_poly:
@@ -1421,6 +1438,7 @@ class FaceRecognitionApp:
                             self.security_zones = resp.json()
                     except Exception:
                         self.security_zones = []
+            self.last_fire_warning = 0
             self._update_security_frame()
 
     def _limit_security_heights(self, event=None):
@@ -1453,6 +1471,7 @@ class FaceRecognitionApp:
         if w < 10 or h < 10:
             w, h = 600, 500
         frame = cv2.resize(frame, (w, h))
+        fire_boxes = self._detect_fire(frame)
         # Наложение зон из интерфейса руководителя и поиск людей
         if self.security_zones:
             scale_x = w / ENV_IMAGE_SIZE[0]
@@ -1497,6 +1516,13 @@ class FaceRecognitionApp:
                                 self.last_zone_warning = time.time()
                                 self._send_log('WARNING', 'Person detected in restricted zone')
                             break
+        for x1, y1, x2, y2 in fire_boxes:
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 2)
+            cv2.putText(frame, 'FIRE', (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6, (0, 165, 255), 2)
+        if fire_boxes and time.time() - self.last_fire_warning > 5:
+            self.last_fire_warning = time.time()
+            self._send_log('WARNING', 'Fire detected')
         img = ImageTk.PhotoImage(image=Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
         self.security_video.imgtk = img
         self.security_video.config(image=img)
