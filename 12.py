@@ -583,6 +583,12 @@ class FaceRecognitionApp:
         nav.pack(fill="x")
         ttk.Button(nav, text="Назад", command=lambda: self._show_frame(self.frame_role)).pack(side="left", padx=10, pady=10)
         ttk.Button(nav, text="Завершить", command=self.on_closing).pack(side="right", padx=10, pady=10)
+        env_sel = ttk.Frame(nav)
+        env_sel.pack(side="left", padx=10)
+        ttk.Label(env_sel, text='Помещение:').pack(side='left')
+        self.security_env = tk.StringVar()
+        self.sec_env_menu = ttk.OptionMenu(env_sel, self.security_env, '')
+        self.sec_env_menu.pack(side='left')
         self.sec_nav = nav
 
         outer = tk.PanedWindow(
@@ -782,7 +788,7 @@ class FaceRecognitionApp:
         else:
             self._stop_camera()
         if target == self.frame_security:
-            self._start_security_cam()
+            self._prepare_security()
             self._load_warning_logs()
             self._load_all_logs()
             return
@@ -990,6 +996,25 @@ class FaceRecognitionApp:
         self.current_rect = None
         self.dragging_handle = None
         self._refresh_assignments()
+
+    def _prepare_security(self):
+        """Refresh security environment menu and start camera."""
+        self._stop_camera()
+        self.environments = load_environments()
+        menu = self.sec_env_menu['menu']
+        menu.delete(0, 'end')
+        names = [e['name'] for e in self.environments]
+        for n in names:
+            menu.add_command(label=n, command=lambda v=n: (self.security_env.set(v), self._on_select_security_env()))
+        if names:
+            self.security_env.set(names[0])
+        else:
+            self.security_env.set('')
+        self._on_select_security_env()
+
+    def _on_select_security_env(self, *_):
+        self._stop_camera()
+        self._start_security_cam()
 
     def _load_manager_env(self, *_):
         env = next((e for e in self.environments if e['name'] == self.manager_env.get()), None)
@@ -1379,7 +1404,11 @@ class FaceRecognitionApp:
 
     def _start_security_cam(self):
         if self.cap is None:
-            self.cap = cv2.VideoCapture(1)
+            idx = 1
+            env = next((e for e in self.environments if e['name'] == self.security_env.get()), None)
+            if env is not None:
+                idx = env.get('camera_index', 1)
+            self.cap = cv2.VideoCapture(idx)
             self._update_security_frame()
 
     def _limit_security_heights(self, event=None):
