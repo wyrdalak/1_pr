@@ -408,6 +408,14 @@ class FaceRecognitionApp:
         self.attempts_label = ttk.Label(f, text="Неудачные попытки: 0", style='Attempts.TLabel')
         self.attempts_label.pack(pady=10)
 
+        # выбор помещения для получения доступа
+        env_select = ttk.Frame(f)
+        env_select.pack(pady=5)
+        ttk.Label(env_select, text="Помещение:").pack(side='left')
+        self.employee_env = tk.StringVar()
+        self.emp_env_menu = ttk.OptionMenu(env_select, self.employee_env, '')
+        self.emp_env_menu.pack(side='left')
+
 
         self.emp_exit_btn = self._create_gradient_button(
             nav, "Завершить", self.on_closing, width=170, height=50)
@@ -526,8 +534,26 @@ class FaceRecognitionApp:
             self.start_button.pack(expand=True)
         self.attempts_label.config(text="Неудачные попытки: 0")
         self.status_label.config(text="Камера не запущена")
+        # обновляем список помещений
+        self.environments = load_environments()
+        env_menu = self.emp_env_menu['menu']
+        env_menu.delete(0, 'end')
+        names = [e['name'] for e in self.environments]
+        for n in names:
+            env_menu.add_command(label=n, command=lambda v=n: self.employee_env.set(v))
+        if names:
+            self.employee_env.set(names[0])
+        else:
+            self.employee_env.set('')
+        # подгружаем назначения
+        self.assignments = load_assignments()
+        self.current_env = None
 
     def _on_start_identification(self):
+        if not self.employee_env.get():
+            messagebox.showwarning('Ошибка', 'Выберите помещение')
+            return
+        self.current_env = self.employee_env.get()
         self.start_button.pack_forget()
         self.cam_box.pack(expand=True, fill='both', padx=20, pady=10)
         self.status_label.pack(pady=5)
@@ -632,7 +658,10 @@ class FaceRecognitionApp:
         self.zone_tool = 'rect'
         self.zones = []
         self._set_zone_tool('rect')
-        tk.Button(f, text='Сохранить зоны', command=self._save_zones).pack(pady=5)
+        btn_frame = ttk.Frame(f)
+        btn_frame.pack(pady=5)
+        tk.Button(btn_frame, text='Сохранить зоны', command=self._save_zones).pack(side='left', padx=5)
+        tk.Button(btn_frame, text='Сохранить допуск', command=self._assign_employee).pack(side='left', padx=5)
 
     def _load_logs(self):
         # Определяем направление сортировки для сервера
@@ -1122,6 +1151,29 @@ class FaceRecognitionApp:
         save_assignments(self.assignments)
         messagebox.showinfo('Сохранено', 'Назначение сохранено')
 
+    def _has_permission(self, name, env_name):
+        """Check if employee has valid permission for selected environment."""
+        env = next((e for e in self.environments if e['name'] == env_name), None)
+        if not env:
+            return False
+        now = datetime.datetime.now()
+        for rec in self.assignments:
+            if rec.get('employee') != name:
+                continue
+            if rec.get('environment_id') != env.get('id'):
+                continue
+            try:
+                start = datetime.datetime.fromisoformat(rec.get('enter_until')) if rec.get('enter_until') else None
+                end = datetime.datetime.fromisoformat(rec.get('exit_until')) if rec.get('exit_until') else None
+            except Exception:
+                start = end = None
+            if start and now < start:
+                continue
+            if end and now > end:
+                continue
+            return True
+        return False
+
     def _start_employee_cam(self):
         if self.cap is None:
             self.cap = cv2.VideoCapture(0)
@@ -1182,8 +1234,12 @@ class FaceRecognitionApp:
                     np.argmin(dists)]; break
             if recognized:
                 dept = self.employee_depts.get(name, 'Unknown')
-                self._send_log('INFO', f"Access granted for {name} ({dept})")
-                self._show_access_granted()
+                if self._has_permission(name, self.current_env):
+                    self._send_log('INFO', f"Access granted for {name} ({dept}) in {self.current_env}")
+                    self._show_access_granted()
+                else:
+                    self._send_log('WARNING', f"Access denied for {name} ({dept}) in {self.current_env}")
+                    self._show_access_denied()
                 return
             if time.time() - self.start_time >= self.auth_timeout:
                 self._send_log('WARNING', f"Failed authentication attempt {self.fail_count + 1}")
