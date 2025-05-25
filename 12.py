@@ -11,6 +11,7 @@ import shutil
 import logging
 import time
 import requests, io, datetime
+import json
 
 # Адрес API вашего сервера
 API_HOST = 'http://192.168.0.111:5001'     # или 'http://<IP_СЕРВЕРА>:5001'
@@ -46,7 +47,13 @@ logging.getLogger().addHandler(ServerLogHandler())
 KNOWN_FACES_DIR = 'server/data/known_faces'
 DEPARTMENTS_FILE = 'server/data/departments.txt'
 ENVIRONMENT_FILE = 'environment.txt'
+ASSIGNMENTS_FILE = 'assignments.json'
+ZONES_DIR = 'zones'
 os.makedirs(KNOWN_FACES_DIR, exist_ok=True)
+os.makedirs(ZONES_DIR, exist_ok=True)
+if not os.path.exists(ASSIGNMENTS_FILE):
+    with open(ASSIGNMENTS_FILE, 'w', encoding='utf-8') as f:
+        f.write('[]')
 
 DEPARTMENT_OPTIONS = {
     'Блок по бизнес приложениям': [
@@ -143,6 +150,21 @@ def save_environments(envs):
             f.write(f"{env['name']};{env['location']};{img};{eid}\n")
 
 
+def load_assignments():
+    if not os.path.exists(ASSIGNMENTS_FILE):
+        return []
+    with open(ASSIGNMENTS_FILE, 'r', encoding='utf-8') as f:
+        try:
+            return json.load(f)
+        except Exception:
+            return []
+
+
+def save_assignments(data):
+    with open(ASSIGNMENTS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
 def get_employees_version():
     """Return modification timestamp of employee metadata on the server."""
     try:
@@ -161,6 +183,7 @@ class FaceRecognitionApp:
         self.emp_version = get_employees_version()
         self.last_emp_check = time.time()
         self.environments = load_environments()
+        self.assignments = load_assignments()
         self.env_selected_image = ''
         self.process_frame = True
         self.cap = None
@@ -182,6 +205,7 @@ class FaceRecognitionApp:
         self.frame_admin = ttk.Frame(self.root)
         self.frame_admin_env = ttk.Frame(self.root)
         self.frame_security = ttk.Frame(self.root)
+        self.frame_manager = ttk.Frame(self.root)
 
         self.departments_map = DEPARTMENT_OPTIONS
         first_group = list(self.departments_map.keys())[0]
@@ -195,6 +219,7 @@ class FaceRecognitionApp:
         self._build_admin_frame()
         self._build_admin_env_frame()
         self._build_security_frame()
+        self._build_manager_frame()
 
         self._show_frame(self.frame_role)
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -282,8 +307,9 @@ class FaceRecognitionApp:
         btn('Сотрудник', lambda: self._show_frame(self.frame_employee), 0.4, green1, green2)
         btn('Администратор', lambda: self._show_frame(self.frame_admin_choice), 0.55, green1,
             green2)
-        btn('Служба безопасности', lambda: self._show_frame(self.frame_security), 0.7, (52, 152, 219), (41, 128, 185))
-        btn('Завершить', self.on_closing, 0.85, (231, 76, 60), (192, 57, 43))
+        btn('Руководитель', lambda: self._show_frame(self.frame_manager), 0.7, green1, green2)
+        btn('Служба безопасности', lambda: self._show_frame(self.frame_security), 0.8, (52, 152, 219), (41, 128, 185))
+        btn('Завершить', self.on_closing, 0.9, (231, 76, 60), (192, 57, 43))
 
     def _build_employee_frame(self):
         f = self.frame_employee
@@ -437,6 +463,41 @@ class FaceRecognitionApp:
         self.log_text.pack(expand=True, fill="both", padx=20, pady=10)
         ttk.Button(f, text="Обновить", command=self._load_logs).pack(pady=5)
 
+    def _build_manager_frame(self):
+        f = self.frame_manager
+        self._apply_gradient_background(f)
+        nav = ttk.Frame(f)
+        nav.pack(fill='x')
+        ttk.Button(nav, text='Назад', command=lambda: self._show_frame(self.frame_role)).pack(side='left', padx=10, pady=10)
+        ttk.Button(nav, text='Завершить', command=self.on_closing).pack(side='right', padx=10, pady=10)
+        ttk.Label(f, text='Руководитель', style='Title.TLabel').pack(pady=10)
+        frm = ttk.Frame(f)
+        frm.pack(pady=10)
+        ttk.Label(frm, text='Сотрудник:').grid(row=0, column=0, sticky='e')
+        self.manager_emp = tk.StringVar()
+        self.emp_menu = ttk.OptionMenu(frm, self.manager_emp, '')
+        self.emp_menu.grid(row=0, column=1, sticky='w')
+        ttk.Label(frm, text='Окружение:').grid(row=1, column=0, sticky='e')
+        self.manager_env = tk.StringVar()
+        self.env_menu = ttk.OptionMenu(frm, self.manager_env, '', command=self._load_manager_env)
+        self.env_menu.grid(row=1, column=1, sticky='w')
+        ttk.Label(frm, text='Войти до:').grid(row=2, column=0, sticky='e')
+        self.enter_entry = ttk.Entry(frm, width=20)
+        self.enter_entry.grid(row=2, column=1, sticky='w')
+        ttk.Label(frm, text='Выйти до:').grid(row=3, column=0, sticky='e')
+        self.exit_entry = ttk.Entry(frm, width=20)
+        self.exit_entry.grid(row=3, column=1, sticky='w')
+        ttk.Button(frm, text='Назначить', command=self._assign_employee).grid(row=4, column=0, columnspan=2, pady=5)
+
+        self.zone_canvas = tk.Canvas(f, bg='#34495e', width=600, height=400)
+        self.zone_canvas.pack(expand=True, fill='both', padx=20, pady=10)
+        self.zone_canvas.bind('<ButtonPress-1>', self._start_zone)
+        self.zone_canvas.bind('<B1-Motion>', self._draw_zone)
+        self.zone_canvas.bind('<ButtonRelease-1>', self._end_zone)
+        self.current_rect = None
+        self.zones = []
+        ttk.Button(f, text='Сохранить зоны', command=self._save_zones).pack(pady=5)
+
     def _load_logs(self):
         # Определяем направление сортировки для сервера
         order = 'asc' if self.sort_var.get() == "По возрастанию" else 'desc'
@@ -457,7 +518,7 @@ class FaceRecognitionApp:
 
     def _show_frame(self, target):
         for frm in (self.frame_role, self.frame_employee, self.frame_admin_choice, self.frame_admin,
-                     self.frame_admin_env, self.frame_security):
+                     self.frame_admin_env, self.frame_security, self.frame_manager):
             frm.pack_forget()
         target.pack(expand=True, fill='both')
         self.root.update_idletasks()
@@ -479,6 +540,9 @@ class FaceRecognitionApp:
             return
         if target == self.frame_security:
             self._load_logs();
+            return
+        if target == self.frame_manager:
+            self._prepare_manager()
             return
 
     def _choose_file(self):
@@ -633,6 +697,103 @@ class FaceRecognitionApp:
         self.known_face_encodings, self.known_face_names, self.employee_depts = load_known_faces()
         self.emp_version = get_employees_version()
         self._refresh_catalog()
+
+    # --- Руководитель ---
+    def _prepare_manager(self):
+        # обновляем меню сотрудников
+        menu = self.emp_menu['menu']
+        menu.delete(0, 'end')
+        for name in self.known_face_names:
+            menu.add_command(label=name, command=lambda v=name: self.manager_emp.set(v))
+        if self.known_face_names:
+            self.manager_emp.set(self.known_face_names[0])
+
+        env_menu = self.env_menu['menu']
+        env_menu.delete(0, 'end')
+        names = [e['name'] for e in self.environments]
+        for n in names:
+            env_menu.add_command(label=n, command=lambda v=n: (self.manager_env.set(v), self._load_manager_env()))
+        if names:
+            self.manager_env.set(names[0])
+            self._load_manager_env()
+        self.enter_entry.delete(0, 'end')
+        self.exit_entry.delete(0, 'end')
+        self.zones = []
+
+    def _load_manager_env(self, *_):
+        env = next((e for e in self.environments if e['name'] == self.manager_env.get()), None)
+        if not env:
+            return
+        img_path = env.get('image', '')
+        try:
+            if img_path.startswith('http'):
+                r = requests.get(img_path, timeout=5)
+                r.raise_for_status()
+                img = Image.open(io.BytesIO(r.content))
+            else:
+                img = Image.open(img_path)
+            self.zone_image = ImageTk.PhotoImage(img)
+            self.zone_canvas.config(width=self.zone_image.width(), height=self.zone_image.height())
+            self.zone_canvas.delete('all')
+            self.zone_canvas.create_image(0, 0, anchor='nw', image=self.zone_image)
+            # загрузить зоны
+            self.zones = []
+            if env.get('id'):
+                try:
+                    resp = requests.get(f"{API_URL}/environments/{env['id']}/zones", timeout=5)
+                    if resp.status_code == 200:
+                        self.zones = resp.json()
+                except Exception:
+                    pass
+            for z in self.zones:
+                self.zone_canvas.create_rectangle(*z, outline='red')
+        except Exception:
+            pass
+
+    def _start_zone(self, event):
+        self.zone_start = (event.x, event.y)
+        self.current_rect = self.zone_canvas.create_rectangle(event.x, event.y, event.x, event.y, outline='red')
+
+    def _draw_zone(self, event):
+        if self.current_rect:
+            self.zone_canvas.coords(self.current_rect, self.zone_start[0], self.zone_start[1], event.x, event.y)
+
+    def _end_zone(self, event):
+        if self.current_rect:
+            coords = [self.zone_start[0], self.zone_start[1], event.x, event.y]
+            self.zones.append(coords)
+            self.current_rect = None
+
+    def _save_zones(self):
+        env = next((e for e in self.environments if e['name'] == self.manager_env.get()), None)
+        if not env or not env.get('id'):
+            messagebox.showwarning('Ошибка', 'Выберите помещение')
+            return
+        try:
+            requests.post(f"{API_URL}/environments/{env['id']}/zones", json={'zones': self.zones}, timeout=5)
+            messagebox.showinfo('Сохранено', 'Зоны сохранены')
+        except Exception as e:
+            messagebox.showerror('Ошибка', str(e))
+
+    def _assign_employee(self):
+        emp = self.manager_emp.get()
+        env = next((e for e in self.environments if e['name'] == self.manager_env.get()), None)
+        if not emp or not env:
+            messagebox.showwarning('Ошибка', 'Выберите сотрудника и помещение')
+            return
+        rec = {
+            'employee': emp,
+            'environment_id': env.get('id'),
+            'enter_until': self.enter_entry.get(),
+            'exit_until': self.exit_entry.get()
+        }
+        try:
+            requests.post(f"{API_URL}/assignments", json=rec, timeout=5)
+        except Exception:
+            pass
+        self.assignments.append(rec)
+        save_assignments(self.assignments)
+        messagebox.showinfo('Сохранено', 'Назначение сохранено')
 
     def _start_employee_cam(self):
         if self.cap is None:

@@ -14,11 +14,14 @@ ENV_DIR = os.path.join(DATA_DIR, 'environments')
 LOG_FILE = os.path.join(DATA_DIR, 'access.log')
 EMP_META = os.path.join(DATA_DIR, 'employees.json')
 ENV_META = os.path.join(DATA_DIR, 'environments.json')
+ASSIGN_FILE = os.path.join(DATA_DIR, 'assignments.json')
+ZONE_DIR = os.path.join(DATA_DIR, 'zones')
 
 # Создаём каталоги и файлы
 os.makedirs(EMP_DIR, exist_ok=True)
 os.makedirs(ENV_DIR, exist_ok=True)
-for path in (EMP_META, ENV_META, LOG_FILE):
+os.makedirs(ZONE_DIR, exist_ok=True)
+for path in (EMP_META, ENV_META, LOG_FILE, ASSIGN_FILE):
     if not os.path.exists(path):
         # пустой JSON для метаданных, пустой файл для логов
         with open(path, 'w', encoding='utf-8') as f:
@@ -30,6 +33,8 @@ with open(EMP_META, 'r', encoding='utf-8') as f:
 with open(ENV_META, 'r', encoding='utf-8') as f:
     env_list = json.load(f)
     environments = {item['id']: item for item in env_list}
+with open(ASSIGN_FILE, 'r', encoding='utf-8') as f:
+    assignments = json.load(f)
 
 # Утилиты сохранения
 
@@ -47,6 +52,10 @@ def employees_version():
 def _save_environments():
     with open(ENV_META, 'w', encoding='utf-8') as f:
         json.dump(list(environments.values()), f, ensure_ascii=False, indent=2)
+
+def _save_assignments():
+    with open(ASSIGN_FILE, 'w', encoding='utf-8') as f:
+        json.dump(assignments, f, ensure_ascii=False, indent=2)
 
 # --- REST для сотрудников ---
 @app.route('/api/employees', methods=['GET'])
@@ -114,6 +123,36 @@ def del_env(eid):
 @app.route('/api/environments/image/<filename>')
 def get_env_img(filename):
     return send_from_directory(ENV_DIR, filename)
+
+# --- REST для назначений ---
+@app.route('/api/assignments', methods=['GET'])
+def list_assignments():
+    return jsonify(assignments)
+
+@app.route('/api/assignments', methods=['POST'])
+def add_assignment_record():
+    data = request.json
+    assignments.append(data)
+    _save_assignments()
+    return jsonify({'status': 'ok'}), 201
+
+# --- REST для зон ---
+@app.route('/api/environments/<eid>/zones', methods=['GET'])
+def get_zones(eid):
+    path = os.path.join(ZONE_DIR, f'{eid}.json')
+    if os.path.exists(path):
+        with open(path, 'r', encoding='utf-8') as f:
+            zones = json.load(f)
+    else:
+        zones = []
+    return jsonify(zones)
+
+@app.route('/api/environments/<eid>/zones', methods=['POST'])
+def save_zones(eid):
+    zones = request.json.get('zones', [])
+    with open(os.path.join(ZONE_DIR, f'{eid}.json'), 'w', encoding='utf-8') as f:
+        json.dump(zones, f, ensure_ascii=False, indent=2)
+    return jsonify({'status': 'ok'})
 
 # --- REST для логов ---
 @app.route('/api/logs', methods=['POST'])
