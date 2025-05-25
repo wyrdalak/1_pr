@@ -621,11 +621,14 @@ class FaceRecognitionApp:
         ttk.Button(time_frame, text='Сохранить допуск', command=self._assign_employee).grid(row=2, column=0, columnspan=2, pady=5)
         canvas_frame = tk.Frame(f, bg='#2c3e50')
         canvas_frame.pack(expand=True, fill='both')
+        canvas_frame.grid_columnconfigure(0, weight=1)
+        canvas_frame.grid_columnconfigure(3, weight=1)
 
-        left_area = tk.Frame(canvas_frame, bg='#2c3e50')
-        left_area.pack(side='left', expand=True, fill='both')
-        toolbar = tk.Frame(left_area, bg='#2c3e50')
-        toolbar.pack(side='top', pady=(5,0))
+        center_area = tk.Frame(canvas_frame, bg='#2c3e50')
+        center_area.grid(row=0, column=1, sticky='n')
+
+        toolbar = tk.Frame(center_area, bg='#2c3e50')
+        toolbar.pack(pady=(5, 0))
         self.zone_tool_buttons = {}
         btn_opts = {'width': 32, 'height': 32}
         self.zone_tool_buttons['rect'] = tk.Button(toolbar, image=self.icon_rect,
@@ -653,8 +656,8 @@ class FaceRecognitionApp:
 
         self.default_tool_bg = self.zone_tool_buttons['rect'].cget('bg')
 
-        canvas_holder = tk.Frame(left_area, bg='#2c3e50')
-        canvas_holder.pack(side='top', expand=True, fill='both', pady=(0,5))
+        canvas_holder = tk.Frame(center_area, bg='#2c3e50')
+        canvas_holder.pack(expand=True, fill='both', pady=(0, 5))
         self.zone_canvas = tk.Canvas(canvas_holder, bg='#2c3e50',
                                      width=ENV_IMAGE_SIZE[0], height=ENV_IMAGE_SIZE[1],
                                      highlightthickness=1, highlightbackground='white')
@@ -671,9 +674,9 @@ class FaceRecognitionApp:
         self._set_zone_tool('rect')
 
         right_area = ttk.Frame(canvas_frame)
-        right_area.pack(side='right', fill='y', padx=10, pady=5)
+        right_area.grid(row=0, column=2, sticky='nsw', padx=(0, 10), pady=5)
         ttk.Label(right_area, text='Выданные допуски:').pack(anchor='n')
-        self.assign_list = tk.Listbox(right_area, height=20)
+        self.assign_list = tk.Listbox(right_area, height=20, width=30)
         self.assign_list.pack(fill='y', padx=5)
         ttk.Button(right_area, text='Удалить', command=self._delete_assignment).pack(pady=5)
 
