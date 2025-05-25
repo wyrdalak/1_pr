@@ -221,6 +221,7 @@ class FaceRecognitionApp:
         self.security_env_id = None
         self.last_zone_warning = 0
         self.last_fire_warning = 0
+        self.last_people_warning = 0
 
         self.root = tk.Tk()
         self.root.title("Система распознавания лиц")
@@ -1338,6 +1339,27 @@ class FaceRecognitionApp:
             return True
         return False
 
+    def _allowed_people_count(self, env_id):
+        """Return number of people allowed in the given environment."""
+        if not env_id:
+            return 0
+        now = datetime.datetime.now()
+        count = 0
+        for rec in self.assignments:
+            if rec.get('environment_id') != env_id:
+                continue
+            try:
+                start = datetime.datetime.fromisoformat(rec.get('enter_until')) if rec.get('enter_until') else None
+                end = datetime.datetime.fromisoformat(rec.get('exit_until')) if rec.get('exit_until') else None
+            except Exception:
+                start = end = None
+            if start and now < start:
+                continue
+            if end and now > end:
+                continue
+            count += 1
+        return count
+
     def _start_employee_cam(self):
         if self.cap is None:
             self.cap = cv2.VideoCapture(1)
@@ -1472,50 +1494,56 @@ class FaceRecognitionApp:
             w, h = 600, 500
         frame = cv2.resize(frame, (w, h))
         fire_boxes = self._detect_fire(frame)
-        # Наложение зон из интерфейса руководителя и поиск людей
+        allowed_cnt = self._allowed_people_count(self.security_env_id)
+        person_cnt = 0
+        scaled_zones = []
         if self.security_zones:
             scale_x = w / ENV_IMAGE_SIZE[0]
             scale_y = h / ENV_IMAGE_SIZE[1]
-            scaled_zones = []
             for z in self.security_zones:
                 pts = [(int(p[0] * scale_x), int(p[1] * scale_y)) for p in z.get('points', [])]
                 if pts:
                     scaled_zones.append(pts)
                     cv2.polylines(frame, [np.array(pts, dtype=np.int32)], True, (0, 0, 255), 2)
 
-            if self.yolo:
-                # disable verbose output from the YOLO model to avoid console
-                # spam like "0: 224x640 1 person" for each frame
-                results = self.yolo(frame, verbose=False)[0]
-                for box in results.boxes:
-                    cls = int(box.cls[0])
-                    if results.names[cls] != 'person':
-                        continue
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    cx = (x1 + x2) // 2
-                    cy = (y1 + y2) // 2
-                    inside = False
-                    for pts in scaled_zones:
-                        if self._point_in_poly(cx, cy, pts):
-                            inside = True
-                            if time.time() - self.last_zone_warning > 5:
-                                self.last_zone_warning = time.time()
-                                self._send_log('WARNING', 'Person detected in restricted zone')
-                            break
-                    color = (0, 0, 255) if inside else (0, 255, 0)
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            else:
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                locs = face_recognition.face_locations(rgb)
-                for top, right, bottom, left in locs:
-                    cx = (left + right) // 2
-                    cy = (top + bottom) // 2
-                    for pts in scaled_zones:
-                        if self._point_in_poly(cx, cy, pts):
-                            if time.time() - self.last_zone_warning > 5:
-                                self.last_zone_warning = time.time()
-                                self._send_log('WARNING', 'Person detected in restricted zone')
-                            break
+        if self.yolo:
+            # disable verbose output from the YOLO model to avoid console spam
+            results = self.yolo(frame, verbose=False)[0]
+            for box in results.boxes:
+                cls = int(box.cls[0])
+                if results.names[cls] != 'person':
+                    continue
+                person_cnt += 1
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                cx = (x1 + x2) // 2
+                cy = (y1 + y2) // 2
+                inside = False
+                for pts in scaled_zones:
+                    if self._point_in_poly(cx, cy, pts):
+                        inside = True
+                        if time.time() - self.last_zone_warning > 5:
+                            self.last_zone_warning = time.time()
+                            self._send_log('WARNING', 'Person detected in restricted zone')
+                        break
+                color = (0, 0, 255) if inside else (0, 255, 0)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+        else:
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            locs = face_recognition.face_locations(rgb)
+            person_cnt = len(locs)
+            for top, right, bottom, left in locs:
+                cx = (left + right) // 2
+                cy = (top + bottom) // 2
+                for pts in scaled_zones:
+                    if self._point_in_poly(cx, cy, pts):
+                        if time.time() - self.last_zone_warning > 5:
+                            self.last_zone_warning = time.time()
+                            self._send_log('WARNING', 'Person detected in restricted zone')
+                        break
+        if person_cnt > allowed_cnt and time.time() - self.last_people_warning > 5:
+            self.last_people_warning = time.time()
+            self._send_log('WARNING', 'Too many people in environment')
+
         for x1, y1, x2, y2 in fire_boxes:
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 2)
             cv2.putText(frame, 'FIRE', (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX,
