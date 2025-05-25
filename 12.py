@@ -761,6 +761,18 @@ class FaceRecognitionApp:
         self.general_log_text.delete('1.0', tk.END)
         self.general_log_text.insert('1.0', data)
 
+    def _schedule_log_refresh(self):
+        """Периодически обновляет логи на экране службы безопасности."""
+        self._load_warning_logs()
+        self._load_all_logs()
+        self.log_refresh_task = self.root.after(5000, self._schedule_log_refresh)
+
+    def _cancel_log_refresh(self):
+        """Останавливает периодическое обновление логов."""
+        if hasattr(self, 'log_refresh_task'):
+            self.root.after_cancel(self.log_refresh_task)
+            del self.log_refresh_task
+
     def _load_warning_logs(self):
         try:
             resp = requests.get(f"{API_URL}/logs", params={'order': 'desc'}, timeout=5)
@@ -774,6 +786,7 @@ class FaceRecognitionApp:
         self.warning_text.insert('1.0', data)
 
     def _show_frame(self, target):
+        self._cancel_log_refresh()
         for frm in (self.frame_role, self.frame_employee, self.frame_admin_choice, self.frame_admin,
                      self.frame_admin_env, self.frame_security, self.frame_manager):
             frm.pack_forget()
@@ -787,8 +800,7 @@ class FaceRecognitionApp:
             self._stop_camera()
         if target == self.frame_security:
             self._start_security_cam()
-            self._load_warning_logs()
-            self._load_all_logs()
+            self._schedule_log_refresh()
             return
         if target == self.frame_admin:
             self._refresh_catalog()
@@ -1458,6 +1470,7 @@ class FaceRecognitionApp:
         logging.log(lvl, msg)
 
     def on_closing(self):
+        self._cancel_log_refresh()
         self._stop_camera();
         self.root.destroy()
 
