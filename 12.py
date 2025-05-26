@@ -221,8 +221,11 @@ class FaceRecognitionApp:
         self.security_env_id = None
         self.last_zone_warning = 0
         self.last_fire_warning = 0
-        self.last_face_mismatch = 0
-        self.last_unauthorized_access = 0
+        # Accumulators for security events
+        self.face_mismatch_times = []  # timestamps of mismatched faces
+        self.unauth_access_times = {}  # name -> list of timestamps
+        self.last_face_mismatch_log = 0
+        self.last_unauth_log = {}
 
         self.root = tk.Tk()
         self.root.title("Система распознавания лиц")
@@ -1507,7 +1510,7 @@ class FaceRecognitionApp:
                     for pts in scaled_zones:
                         if self._point_in_poly(cx, cy, pts):
                             inside = True
-                            if time.time() - self.last_zone_warning > 5:
+                            if time.time() - self.last_zone_warning > 15:
                                 self.last_zone_warning = time.time()
                                 self._send_log('WARNING', 'Обнаружен человек в запретной зоне')
                             break
@@ -1550,14 +1553,21 @@ class FaceRecognitionApp:
             cv2.putText(frame, name, (tx, ty + text_size[1]),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
             if name != 'Неизвестный' and not authorized:
-                if time.time() - self.last_unauthorized_access > 5:
-                    self.last_unauthorized_access = time.time()
+                now = time.time()
+                lst = self.unauth_access_times.setdefault(name, [])
+                lst.append(now)
+                self.unauth_access_times[name] = [t for t in lst if now - t <= 30]
+                if len(self.unauth_access_times[name]) >= 3 and now - self.last_unauth_log.get(name, 0) > 30:
+                    self.last_unauth_log[name] = now
                     env = next((e for e in self.environments if e.get('id') == self.security_env_id), {})
                     env_name = env.get('name', 'Неизвестное помещение')
                     self._send_log('WARNING', f'Несанкционированный доступ в {env_name}: {name}')
             elif name == 'Неизвестный' and not authorized:
-                if time.time() - self.last_face_mismatch > 5:
-                    self.last_face_mismatch = time.time()
+                now = time.time()
+                self.face_mismatch_times.append(now)
+                self.face_mismatch_times = [t for t in self.face_mismatch_times if now - t <= 30]
+                if len(self.face_mismatch_times) > 7 and now - self.last_face_mismatch_log > 30:
+                    self.last_face_mismatch_log = now
                     env = next((e for e in self.environments if e.get('id') == self.security_env_id), {})
                     env_name = env.get('name', 'Неизвестное помещение')
                     self._send_log('WARNING', f'Несовпадение лица в {env_name}: {name} не имеет доступа')
