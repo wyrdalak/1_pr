@@ -52,8 +52,10 @@ DEPARTMENTS_FILE = 'server/data/departments.txt'
 ENVIRONMENT_FILE = 'environment.txt'
 ASSIGNMENTS_FILE = 'assignments.json'
 ZONES_DIR = 'zones'
+PROCESSED_WARNINGS_FILE = 'server/data/processed_warnings.json'
 os.makedirs(KNOWN_FACES_DIR, exist_ok=True)
 os.makedirs(ZONES_DIR, exist_ok=True)
+os.makedirs(os.path.dirname(PROCESSED_WARNINGS_FILE), exist_ok=True)
 if not os.path.exists(ASSIGNMENTS_FILE):
     with open(ASSIGNMENTS_FILE, 'w', encoding='utf-8') as f:
         f.write('[]')
@@ -189,6 +191,23 @@ def save_assignments(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+def load_processed_warnings():
+    """Load processed warning log lines from file."""
+    if os.path.exists(PROCESSED_WARNINGS_FILE):
+        try:
+            with open(PROCESSED_WARNINGS_FILE, 'r', encoding='utf-8') as f:
+                return set(json.load(f))
+        except Exception:
+            return set()
+    return set()
+
+
+def save_processed_warnings(data):
+    """Save processed warning log lines to file."""
+    with open(PROCESSED_WARNINGS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(sorted(list(data)), f, ensure_ascii=False, indent=2)
+
+
 def get_employees_version():
     """Return modification timestamp of employee metadata on the server."""
     try:
@@ -227,7 +246,7 @@ class FaceRecognitionApp:
         self.last_face_mismatch_log = 0
         self.last_unauth_log = {}
         # already handled warnings so they are not shown again
-        self.processed_warnings = set()
+        self.processed_warnings = load_processed_warnings()
 
         self.root = tk.Tk()
         self.root.title("Система распознавания лиц")
@@ -838,6 +857,7 @@ class FaceRecognitionApp:
     def _process_warning(self, line: str, block):
         """Mark a warning as processed and remove its block from view."""
         self.processed_warnings.add(line)
+        save_processed_warnings(self.processed_warnings)
         block.destroy()
 
     def _show_frame(self, target):
