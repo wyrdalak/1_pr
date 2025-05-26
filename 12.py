@@ -96,7 +96,7 @@ DEPARTMENT_OPTIONS = {
 def load_known_faces():
     known_encodings, known_names = [], []
     mapping = {}
-    resp = requests.get(f"{API_URL}/employees")
+    resp = requests.get(f"{API_URL}/employees", timeout=5)
     for emp in resp.json():
         # тянем фото по URL
         photo_url = API_HOST + emp['photo_url']
@@ -928,7 +928,7 @@ class FaceRecognitionApp:
         data = {'name': name, 'location': loc}
 
         # 2) POST на /api/environments
-        resp = requests.post(f"{API_URL}/environments", data=data, files=files)
+        resp = requests.post(f"{API_URL}/environments", data=data, files=files, timeout=5)
         if resp.status_code == 201:
             # 3) Сервер вернул JSON с данными нового помещения
             self.env_status.config(text="Помещение добавлено на сервер")
@@ -960,7 +960,7 @@ class FaceRecognitionApp:
         data = {'name': name, 'dept': dept}
 
         # POST /api/employees
-        resp = requests.post(f"{API_URL}/employees", data=data, files=files)
+        resp = requests.post(f"{API_URL}/employees", data=data, files=files, timeout=5)
         if resp.status_code == 201:
             # Успешно добавили на сервер
             self.admin_status.config(text=f"Сотрудник {name} добавлен на сервер")
@@ -1005,7 +1005,7 @@ class FaceRecognitionApp:
         if env in self.environments:
             if env.get('id'):
                 try:
-                    requests.delete(f"{API_URL}/environments/{env['id']}")
+                    requests.delete(f"{API_URL}/environments/{env['id']}", timeout=5)
                 except Exception as e:
                     logging.error("Не удалось удалить помещение на сервере: %s", e)
             self.environments.remove(env)
