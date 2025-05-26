@@ -1406,16 +1406,16 @@ class FaceRecognitionApp:
                 if len(dists) > 0 and matches[np.argmin(dists)]: recognized = True; name = self.known_face_names[
                     np.argmin(dists)]; break
             if recognized:
-                dept = self.employee_depts.get(name, 'Unknown')
+                dept = self.employee_depts.get(name, 'Неизвестно')
                 if self._has_permission(name, self.current_env):
-                    self._send_log('INFO', f"Access granted for {name} ({dept}) in {self.current_env}")
+                    self._send_log('INFO', f"Доступ разрешен для {name} ({dept}) в {self.current_env}")
                     self._show_access_granted()
                 else:
-                    self._send_log('WARNING', f"Access denied for {name} ({dept}) in {self.current_env}")
+                    self._send_log('WARNING', f"Доступ запрещен для {name} ({dept}) в {self.current_env}")
                     self._show_access_denied()
                 return
             if time.time() - self.start_time >= self.auth_timeout:
-                self._send_log('WARNING', f"Failed authentication attempt {self.fail_count + 1}")
+                self._send_log('WARNING', f"Неуспешная попытка аутентификации {self.fail_count + 1}")
                 self.fail_count += 1
                 self.total_failed_identifications += 1
                 self.attempts_label.config(text=f"Неудачные попытки: {self.fail_count}")
@@ -1435,7 +1435,7 @@ class FaceRecognitionApp:
                 try:
                     self.yolo = YOLO(YOLO_WEIGHTS)
                 except Exception as e:
-                    logging.error(f'Failed to load YOLO model: {e}')
+                    logging.error(f'Не удалось загрузить модель YOLO: {e}')
             # выбираем первое доступное помещение для мониторинга
             if self.environments:
                 env = self.environments[0]
@@ -1509,7 +1509,7 @@ class FaceRecognitionApp:
                             inside = True
                             if time.time() - self.last_zone_warning > 5:
                                 self.last_zone_warning = time.time()
-                                self._send_log('WARNING', 'Person detected in restricted zone')
+                                self._send_log('WARNING', 'Обнаружен человек в запретной зоне')
                             break
                     color = (0, 0, 255) if inside else (0, 255, 0)
                     cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
@@ -1523,7 +1523,7 @@ class FaceRecognitionApp:
                         if self._point_in_poly(cx, cy, pts):
                             if time.time() - self.last_zone_warning > 5:
                                 self.last_zone_warning = time.time()
-                                self._send_log('WARNING', 'Person detected in restricted zone')
+                                self._send_log('WARNING', 'Обнаружен человек в запретной зоне')
                             break
         # Распознавание лиц и сверка с допусками
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -1531,14 +1531,14 @@ class FaceRecognitionApp:
         encs = face_recognition.face_encodings(rgb, locs)
         for (top, right, bottom, left), enc in zip(locs, encs):
             matches = face_recognition.compare_faces(self.known_face_encodings, enc)
-            name = 'Unknown'
+            name = 'Неизвестный'
             if len(matches) > 0:
                 dists = face_recognition.face_distance(self.known_face_encodings, enc)
                 best = np.argmin(dists)
                 if matches[best]:
                     name = self.known_face_names[best]
             authorized = False
-            if name != 'Unknown' and self.security_env_id:
+            if name != 'Неизвестный' and self.security_env_id:
                 authorized = self._has_permission_env_id(name, self.security_env_id)
             color = (0, 255, 0) if authorized else (0, 0, 255)
             cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
@@ -1549,25 +1549,25 @@ class FaceRecognitionApp:
                           color, -1)
             cv2.putText(frame, name, (tx, ty + text_size[1]),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
-            if name != 'Unknown' and not authorized:
+            if name != 'Неизвестный' and not authorized:
                 if time.time() - self.last_unauthorized_access > 5:
                     self.last_unauthorized_access = time.time()
                     env = next((e for e in self.environments if e.get('id') == self.security_env_id), {})
-                    env_name = env.get('name', 'Unknown environment')
-                    self._send_log('WARNING', f'Unauthorized access in {env_name}: {name}')
-            elif name == 'Unknown' and not authorized:
+                    env_name = env.get('name', 'Неизвестное помещение')
+                    self._send_log('WARNING', f'Несанкционированный доступ в {env_name}: {name}')
+            elif name == 'Неизвестный' and not authorized:
                 if time.time() - self.last_face_mismatch > 5:
                     self.last_face_mismatch = time.time()
                     env = next((e for e in self.environments if e.get('id') == self.security_env_id), {})
-                    env_name = env.get('name', 'Unknown environment')
-                    self._send_log('WARNING', f'Face mismatch in {env_name}: {name} has no access')
+                    env_name = env.get('name', 'Неизвестное помещение')
+                    self._send_log('WARNING', f'Несовпадение лица в {env_name}: {name} не имеет доступа')
         for x1, y1, x2, y2 in fire_boxes:
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 2)
             cv2.putText(frame, 'FIRE', (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX,
                         0.6, (0, 165, 255), 2)
         if fire_boxes and time.time() - self.last_fire_warning > 5:
             self.last_fire_warning = time.time()
-            self._send_log('WARNING', 'Fire detected')
+            self._send_log('WARNING', 'Обнаружено возгорание')
         img = ImageTk.PhotoImage(image=Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
         self.security_video.imgtk = img
         self.security_video.config(image=img)
