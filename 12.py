@@ -7,7 +7,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 import tkinter.ttk as ttk
 from tkinter import filedialog, messagebox, scrolledtext
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw, ImageFont
 import shutil
 import logging
 import time
@@ -19,6 +19,7 @@ import math
 API_HOST = 'http://192.168.0.111:5001'     # или 'http://<IP_СЕРВЕРА>:5001'
 API_URL  = API_HOST + '/api'
 YOLO_WEIGHTS = 'yolov5s.pt'
+FONT_PATH = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
 
 # --- Настройка логирования ---
 logging.basicConfig(
@@ -222,6 +223,8 @@ class FaceRecognitionApp:
         self.last_zone_warning = 0
         self.last_fire_warning = 0
         self.last_face_mismatch = 0
+        self.last_unauthorized_access = 0
+        self.name_font = ImageFont.truetype(FONT_PATH, 20)
 
         self.root = tk.Tk()
         self.root.title("Система распознавания лиц")
@@ -1528,6 +1531,7 @@ class FaceRecognitionApp:
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         locs = face_recognition.face_locations(rgb)
         encs = face_recognition.face_encodings(rgb, locs)
+        name_overlays = []
         for (top, right, bottom, left), enc in zip(locs, encs):
             matches = face_recognition.compare_faces(self.known_face_encodings, enc)
             name = 'Unknown'
@@ -1541,14 +1545,30 @@ class FaceRecognitionApp:
                 authorized = self._has_permission_env_id(name, self.security_env_id)
             color = (0, 255, 0) if authorized else (0, 0, 255)
             cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
-            cv2.putText(frame, name, (left, top - 5), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6, color, 2)
-            if name == 'Unknown' and not authorized:
+            name_overlays.append((name, left, top, color))
+            if name != 'Unknown' and not authorized:
+                if time.time() - self.last_unauthorized_access > 5:
+                    self.last_unauthorized_access = time.time()
+                    env = next((e for e in self.environments if e.get('id') == self.security_env_id), {})
+                    env_name = env.get('name', 'Unknown environment')
+                    self._send_log('WARNING', f'Неправомерный доступ в {env_name}: {name}')
+            elif name == 'Unknown' and not authorized:
                 if time.time() - self.last_face_mismatch > 5:
                     self.last_face_mismatch = time.time()
                     env = next((e for e in self.environments if e.get('id') == self.security_env_id), {})
                     env_name = env.get('name', 'Unknown environment')
                     self._send_log('WARNING', f'Face mismatch in {env_name}: {name} has no access')
+        # draw names using PIL to support non-ASCII characters
+        frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(frame_pil)
+        for nm, lx, tp, clr in name_overlays:
+            bbox = draw.textbbox((lx, tp), nm, font=self.name_font)
+            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            ty = max(0, tp - th - 5)
+            draw.rectangle([lx, ty, lx + tw, ty + th], fill=(0, 0, 0))
+            draw.text((lx, ty), nm, font=self.name_font, fill=(clr[2], clr[1], clr[0]))
+        frame = cv2.cvtColor(np.array(frame_pil), cv2.COLOR_RGB2BGR)
+
         for x1, y1, x2, y2 in fire_boxes:
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 2)
             cv2.putText(frame, 'FIRE', (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX,
