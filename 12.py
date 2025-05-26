@@ -1417,7 +1417,10 @@ class FaceRecognitionApp:
 
     def _start_employee_cam(self):
         if self.cap is None:
-            self.cap = cv2.VideoCapture(1)
+            # use the default camera (index 0). Earlier the code attempted to
+            # access camera 1 which may not exist on many systems and resulted
+            # in the identification process never starting.
+            self.cap = cv2.VideoCapture(0)
             self.start_time = time.time()
             self.fail_count = 0
             self.attempts_label.config(text="Неудачные попытки: 0")
