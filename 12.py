@@ -7,7 +7,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 import tkinter.ttk as ttk
 from tkinter import filedialog, messagebox, scrolledtext
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw, ImageFont
 import shutil
 import logging
 import time
@@ -19,6 +19,7 @@ import math
 API_HOST = 'http://192.168.0.111:5001'     # или 'http://<IP_СЕРВЕРА>:5001'
 API_URL  = API_HOST + '/api'
 YOLO_WEIGHTS = 'yolov5s.pt'
+FONT_PATH = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
 
 # --- Настройка логирования ---
 logging.basicConfig(
@@ -222,8 +223,14 @@ class FaceRecognitionApp:
         self.last_zone_warning = 0
         self.last_fire_warning = 0
         self.last_face_mismatch = 0
+        self.last_unauthorized_access = 0
 
         self.root = tk.Tk()
+        try:
+            self.name_font = ImageFont.truetype(FONT_PATH, 20)
+        except OSError:
+            logging.warning('Failed to load font %s, using default', FONT_PATH)
+            self.name_font = ImageFont.load_default()
         self.root.title("Система распознавания лиц")
         self.root.attributes('-fullscreen', True)
         self.style = ttk.Style(self.root)
@@ -1528,6 +1535,7 @@ class FaceRecognitionApp:
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         locs = face_recognition.face_locations(rgb)
         encs = face_recognition.face_encodings(rgb, locs)
+        to_draw = []
         for (top, right, bottom, left), enc in zip(locs, encs):
             matches = face_recognition.compare_faces(self.known_face_encodings, enc)
             name = 'Unknown'
@@ -1541,9 +1549,14 @@ class FaceRecognitionApp:
                 authorized = self._has_permission_env_id(name, self.security_env_id)
             color = (0, 255, 0) if authorized else (0, 0, 255)
             cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
-            cv2.putText(frame, name, (left, top - 5), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6, color, 2)
-            if name == 'Unknown' and not authorized:
+            to_draw.append((name, left, top, color))
+            if name != 'Unknown' and not authorized:
+                if time.time() - self.last_unauthorized_access > 5:
+                    self.last_unauthorized_access = time.time()
+                    env = next((e for e in self.environments if e.get('id') == self.security_env_id), {})
+                    env_name = env.get('name', 'Unknown environment')
+                    self._send_log('WARNING', f'Unauthorized access in {env_name}: {name}')
+            elif name == 'Unknown' and not authorized:
                 if time.time() - self.last_face_mismatch > 5:
                     self.last_face_mismatch = time.time()
                     env = next((e for e in self.environments if e.get('id') == self.security_env_id), {})
@@ -1551,11 +1564,22 @@ class FaceRecognitionApp:
                     self._send_log('WARNING', f'Face mismatch in {env_name}: {name} has no access')
         for x1, y1, x2, y2 in fire_boxes:
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 2)
-            cv2.putText(frame, 'FIRE', (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6, (0, 165, 255), 2)
+            to_draw.append(('FIRE', x1, y1, (0, 165, 255)))
         if fire_boxes and time.time() - self.last_fire_warning > 5:
             self.last_fire_warning = time.time()
             self._send_log('WARNING', 'Fire detected')
+        if to_draw:
+            pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            draw = ImageDraw.Draw(pil_img)
+            for text, x, y, col in to_draw:
+                bbox = draw.textbbox((0, 0), text, font=self.name_font)
+                width = bbox[2] - bbox[0]
+                height = bbox[3] - bbox[1]
+                rect_xy = (x, max(0, y - height - 6), x + width + 4, max(0, y - height - 6) + height + 4)
+                draw.rectangle(rect_xy, fill=(0, 0, 0))
+                draw.text((x + 2, rect_xy[1] + 2), text, font=self.name_font,
+                          fill=(col[2], col[1], col[0]))
+            frame = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
         img = ImageTk.PhotoImage(image=Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
         self.security_video.imgtk = img
         self.security_video.config(image=img)
