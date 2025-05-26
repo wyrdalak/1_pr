@@ -440,12 +440,12 @@ class FaceRecognitionApp:
             c.place(relx=0.5, rely=y, anchor='center')
 
         green1, green2 = (46, 204, 113), (39, 174, 96)
-        btn('Сотрудник', lambda: self._show_frame(self.frame_employee), 0.4, green1, green2)
-        btn('Администратор', lambda: self._show_frame(self.frame_admin_choice), 0.55, green1,
+        btn('Сотрудник', lambda: self._show_frame(self.frame_employee), 0.35, green1, green2)
+        btn('Администратор', lambda: self._show_frame(self.frame_admin_choice), 0.5, green1,
             green2)
-        btn('Руководитель', lambda: self._show_frame(self.frame_manager), 0.7, green1, green2)
+        btn('Руководитель', lambda: self._show_frame(self.frame_manager), 0.65, green1, green2)
         btn('Служба безопасности', lambda: self._show_frame(self.frame_security), 0.8, (52, 152, 219), (41, 128, 185))
-        btn('Завершить', self.on_closing, 0.9, (231, 76, 60), (192, 57, 43))
+        btn('Завершить', self.on_closing, 0.95, (231, 76, 60), (192, 57, 43))
 
     def _build_employee_frame(self):
         f = self.frame_employee
@@ -787,10 +787,10 @@ class FaceRecognitionApp:
         self.assign_scroll_x.pack(fill='x', padx=5)
         ttk.Button(right_area, text='Удалить', command=self._delete_assignment).pack(pady=5)
 
-        btn_frame = ttk.Frame(f)
-        btn_frame.pack(pady=5)
-        tk.Button(btn_frame, text='Редактировать зоны', command=self._edit_saved_zones).pack(side='left', padx=5)
-        tk.Button(btn_frame, text='Сохранить зоны', command=self._save_zones).pack(side='left', padx=5)
+        btn_frame = ttk.Frame(left_area)
+        btn_frame.place(relx=0.02, rely=0.5, anchor='w')
+        tk.Button(btn_frame, text='Редактировать зоны', command=self._edit_saved_zones).pack(pady=5)
+        tk.Button(btn_frame, text='Сохранить зоны', command=self._save_zones).pack(pady=5)
 
     def _load_all_logs(self):
         try:
