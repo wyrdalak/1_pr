@@ -222,6 +222,7 @@ class FaceRecognitionApp:
         self.last_zone_warning = 0
         self.last_fire_warning = 0
         self.last_face_mismatch = 0
+        self.last_unauthorized_access = 0
 
         self.root = tk.Tk()
         self.root.title("Система распознавания лиц")
@@ -1541,9 +1542,20 @@ class FaceRecognitionApp:
                 authorized = self._has_permission_env_id(name, self.security_env_id)
             color = (0, 255, 0) if authorized else (0, 0, 255)
             cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
-            cv2.putText(frame, name, (left, top - 5), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6, color, 2)
-            if name == 'Unknown' and not authorized:
+            text_size, _ = cv2.getTextSize(name, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+            tx, ty = left, max(0, top - text_size[1] - 6)
+            cv2.rectangle(frame, (tx - 1, ty - 1),
+                          (tx + text_size[0] + 2, ty + text_size[1] + 2),
+                          color, -1)
+            cv2.putText(frame, name, (tx, ty + text_size[1]),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+            if name != 'Unknown' and not authorized:
+                if time.time() - self.last_unauthorized_access > 5:
+                    self.last_unauthorized_access = time.time()
+                    env = next((e for e in self.environments if e.get('id') == self.security_env_id), {})
+                    env_name = env.get('name', 'Unknown environment')
+                    self._send_log('WARNING', f'Unauthorized access in {env_name}: {name}')
+            elif name == 'Unknown' and not authorized:
                 if time.time() - self.last_face_mismatch > 5:
                     self.last_face_mismatch = time.time()
                     env = next((e for e in self.environments if e.get('id') == self.security_env_id), {})
