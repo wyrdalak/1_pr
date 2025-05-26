@@ -16,7 +16,7 @@ import json
 import math
 
 # Адрес API вашего сервера
-API_HOST = 'http://192.168.0.111:5001'     # или 'http://<IP_СЕРВЕРА>:5001'
+API_HOST = 'http://10.192.208.237:5001'     # или 'http://<IP_СЕРВЕРА>:5001'
 API_URL  = API_HOST + '/api'
 YOLO_WEIGHTS = 'yolov5s.pt'
 
