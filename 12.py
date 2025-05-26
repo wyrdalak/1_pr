@@ -226,6 +226,10 @@ class FaceRecognitionApp:
         self.unauth_access_times = {}  # name -> list of timestamps
         self.last_face_mismatch_log = 0
         self.last_unauth_log = {}
+        # last time overcapacity warning was logged
+        self.last_overcrowd_log = 0
+        # already handled warnings so they are not shown again
+        self.processed_warnings = set()
 
         self.root = tk.Tk()
         self.root.title("Система распознавания лиц")
@@ -627,8 +631,20 @@ class FaceRecognitionApp:
         right = tk.Frame(paned, bg='#2c3e50', height=SEC_PANE_MAX_HEIGHT)
         right.pack_propagate(False)
         ttk.Label(right, text='Нарушения', style='Title.TLabel').pack(pady=5)
-        self.warning_text = scrolledtext.ScrolledText(right, width=50, font=("Courier", 12))
-        self.warning_text.pack(expand=True, fill='both', padx=10, pady=10)
+        warn_container = tk.Frame(right, bg='#2c3e50')
+        warn_container.pack(expand=True, fill='both', padx=10, pady=10)
+        self.warning_canvas = tk.Canvas(warn_container, bg='#2c3e50', highlightthickness=0)
+        self.warning_scroll = ttk.Scrollbar(warn_container, orient='vertical',
+                                            command=self.warning_canvas.yview)
+        self.warning_inner = ttk.Frame(self.warning_canvas)
+        self.warning_inner.bind(
+            '<Configure>',
+            lambda e: self.warning_canvas.configure(scrollregion=self.warning_canvas.bbox("all"))
+        )
+        self.warning_canvas.create_window((0, 0), window=self.warning_inner, anchor='nw')
+        self.warning_canvas.configure(yscrollcommand=self.warning_scroll.set)
+        self.warning_canvas.pack(side='left', fill='both', expand=True)
+        self.warning_scroll.pack(side='right', fill='y')
         paned.add(right, minsize=200)
         self.sec_right = right
 
@@ -788,12 +804,43 @@ class FaceRecognitionApp:
             resp = requests.get(f"{API_URL}/logs", params={'order': 'desc'}, timeout=5)
             resp.raise_for_status()
             lines = [l for l in resp.json() if 'WARNING' in l]
-            data = "\n".join(lines)
         except Exception as e:
-            data = f"Не удалось получить логи: {e}"
+            lines = [f"Не удалось получить логи: {e}"]
 
-        self.warning_text.delete('1.0', tk.END)
-        self.warning_text.insert('1.0', data)
+        for child in self.warning_inner.winfo_children():
+            child.destroy()
+
+        for line in lines:
+            if line in self.processed_warnings:
+                continue
+            level, msg = self._parse_warning_line(line)
+            self._add_warning_block(line, level, msg)
+
+    def _parse_warning_line(self, line: str):
+        """Return log level and message for a warning log line."""
+        idx = line.find('WARNING:')
+        if idx != -1:
+            msg = line[idx + len('WARNING:'):].strip()
+            if 'WARNING:' in msg:
+                msg = msg.split('WARNING:', 1)[1].strip()
+            return 'WARNING', msg
+        parts = line.split(':', 1)
+        if len(parts) == 2:
+            return parts[0].strip().split()[-1], parts[1].strip()
+        return 'WARNING', line
+
+    def _add_warning_block(self, line: str, level: str, msg: str):
+        block = ttk.Frame(self.warning_inner, relief='groove', padding=5)
+        ttk.Label(block, text=f'Тип: {level}').pack(anchor='w')
+        ttk.Label(block, text=msg, wraplength=350, justify='left').pack(anchor='w')
+        ttk.Button(block, text='Обработать',
+                   command=lambda l=line, b=block: self._process_warning(l, b)).pack(anchor='e', pady=(5, 0))
+        block.pack(fill='x', padx=5, pady=5)
+
+    def _process_warning(self, line: str, block):
+        """Mark a warning as processed and remove its block from view."""
+        self.processed_warnings.add(line)
+        block.destroy()
 
     def _show_frame(self, target):
         self._cancel_log_refresh()
@@ -1350,6 +1397,25 @@ class FaceRecognitionApp:
             return False
         return self._has_permission(name, env['name'])
 
+    def _count_active_permits(self, env_id: str) -> int:
+        """Return number of valid permits for the environment."""
+        now = datetime.datetime.now()
+        names = set()
+        for rec in self.assignments:
+            if rec.get('environment_id') != env_id:
+                continue
+            try:
+                start = datetime.datetime.fromisoformat(rec.get('enter_until')) if rec.get('enter_until') else None
+                end = datetime.datetime.fromisoformat(rec.get('exit_until')) if rec.get('exit_until') else None
+            except Exception:
+                start = end = None
+            if start and now < start:
+                continue
+            if end and now > end:
+                continue
+            names.add(rec.get('employee'))
+        return len(names)
+
     def _start_employee_cam(self):
         if self.cap is None:
             self.cap = cv2.VideoCapture(1)
@@ -1532,6 +1598,7 @@ class FaceRecognitionApp:
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         locs = face_recognition.face_locations(rgb)
         encs = face_recognition.face_encodings(rgb, locs)
+        authorized_present = set()
         for (top, right, bottom, left), enc in zip(locs, encs):
             matches = face_recognition.compare_faces(self.known_face_encodings, enc)
             name = 'Неизвестный'
@@ -1562,6 +1629,8 @@ class FaceRecognitionApp:
                     env = next((e for e in self.environments if e.get('id') == self.security_env_id), {})
                     env_name = env.get('name', 'Неизвестное помещение')
                     self._send_log('WARNING', f'Несанкционированный доступ в {env_name}: {name}')
+            elif name != 'Неизвестный' and authorized:
+                authorized_present.add(name)
             elif name == 'Неизвестный' and not authorized:
                 now = time.time()
                 self.face_mismatch_times.append(now)
@@ -1571,6 +1640,14 @@ class FaceRecognitionApp:
                     env = next((e for e in self.environments if e.get('id') == self.security_env_id), {})
                     env_name = env.get('name', 'Неизвестное помещение')
                     self._send_log('WARNING', f'Несовпадение лица в {env_name}: {name} не имеет доступа')
+        if self.security_env_id:
+            allowed = self._count_active_permits(self.security_env_id)
+            present = len(authorized_present)
+            if present > allowed and time.time() - self.last_overcrowd_log > 30:
+                self.last_overcrowd_log = time.time()
+                env = next((e for e in self.environments if e.get('id') == self.security_env_id), {})
+                env_name = env.get('name', 'Неизвестное помещение')
+                self._send_log('WARNING', f'В {env_name} находится {present} сотрудников при {allowed} допусках')
         for x1, y1, x2, y2 in fire_boxes:
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 2)
             cv2.putText(frame, 'FIRE', (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX,
