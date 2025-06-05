@@ -240,6 +240,7 @@ class FaceRecognitionApp:
         self.security_env_id = None
         self.last_zone_warning = 0
         self.last_fire_warning = 0
+        self.last_overcrowd_log = 0
         # Accumulators for security events
         self.face_mismatch_times = []  # timestamps of mismatched faces
         self.unauth_access_times = {}  # name -> list of timestamps
@@ -1415,6 +1416,25 @@ class FaceRecognitionApp:
             return False
         return self._has_permission(name, env['name'])
 
+    def _count_valid_permissions_env_id(self, env_id):
+        """Return number of employees with a valid assignment for env_id."""
+        now = datetime.datetime.now()
+        count = 0
+        for rec in self.assignments:
+            if rec.get('environment_id') != env_id:
+                continue
+            try:
+                start = datetime.datetime.fromisoformat(rec.get('enter_until')) if rec.get('enter_until') else None
+                end = datetime.datetime.fromisoformat(rec.get('exit_until')) if rec.get('exit_until') else None
+            except Exception:
+                start = end = None
+            if start and now < start:
+                continue
+            if end and now > end:
+                continue
+            count += 1
+        return count
+
     def _start_employee_cam(self):
         if self.cap is None:
             # use the default camera (index 0). Earlier the code attempted to
@@ -1552,6 +1572,7 @@ class FaceRecognitionApp:
             w, h = 600, 500
         frame = cv2.resize(frame, (w, h))
         fire_boxes = self._detect_fire(frame)
+        people_count = 0
         # Наложение зон из интерфейса руководителя и поиск людей
         if self.security_zones:
             scale_x = w / ENV_IMAGE_SIZE[0]
@@ -1567,10 +1588,12 @@ class FaceRecognitionApp:
                 # disable verbose output from the YOLO model to avoid console
                 # spam like "0: 224x640 1 person" for each frame
                 results = self.yolo(frame, verbose=False)[0]
+                person_boxes = []
                 for box in results.boxes:
                     cls = int(box.cls[0])
                     if results.names[cls] != 'person':
                         continue
+                    person_boxes.append(box)
                     x1, y1, x2, y2 = map(int, box.xyxy[0])
                     cx = (x1 + x2) // 2
                     cy = (y1 + y2) // 2
@@ -1584,9 +1607,11 @@ class FaceRecognitionApp:
                             break
                     color = (0, 0, 255) if inside else (0, 255, 0)
                     cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                people_count = len(person_boxes)
             else:
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 locs = face_recognition.face_locations(rgb)
+                people_count = len(locs)
                 for top, right, bottom, left in locs:
                     cx = (left + right) // 2
                     cy = (top + bottom) // 2
@@ -1596,6 +1621,14 @@ class FaceRecognitionApp:
                                 self.last_zone_warning = time.time()
                                 self._send_log('WARNING', 'Обнаружен человек в запретной зоне')
                             break
+        else:
+            if self.yolo:
+                results = self.yolo(frame, verbose=False)[0]
+                people_count = sum(1 for box in results.boxes if results.names[int(box.cls[0])] == 'person')
+            else:
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                locs = face_recognition.face_locations(rgb)
+                people_count = len(locs)
         # Распознавание лиц и сверка с допусками
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         locs = face_recognition.face_locations(rgb)
@@ -1639,6 +1672,14 @@ class FaceRecognitionApp:
                     env = next((e for e in self.environments if e.get('id') == self.security_env_id), {})
                     env_name = env.get('name', 'Неизвестное помещение')
                     self._send_log('WARNING', f'Несовпадение лица в {env_name}: {name} не имеет доступа')
+
+        if self.security_env_id:
+            allowed = self._count_valid_permissions_env_id(self.security_env_id)
+            if people_count > allowed and time.time() - self.last_overcrowd_log > 30:
+                self.last_overcrowd_log = time.time()
+                env = next((e for e in self.environments if e.get('id') == self.security_env_id), {})
+                env_name = env.get('name', 'Неизвестное помещение')
+                self._send_log('WARNING', f'Превышено количество людей в {env_name}: разрешено {allowed}, обнаружено {people_count}')
         for x1, y1, x2, y2 in fire_boxes:
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 2)
             cv2.putText(frame, 'FIRE', (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX,
