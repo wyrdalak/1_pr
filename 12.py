@@ -16,7 +16,7 @@ import json
 import math
 
 # Адрес API вашего сервера
-API_HOST = 'http://10.192.208.237:5001'     # или 'http://<IP_СЕРВЕРА>:5001'
+API_HOST = 'http://192.168.109.200:5001'     # или 'http://<IP_СЕРВЕРА>:5001'
 API_URL  = API_HOST + '/api'
 YOLO_WEIGHTS = 'yolov5s.pt'
 
@@ -1417,6 +1417,9 @@ class FaceRecognitionApp:
 
     def _start_employee_cam(self):
         if self.cap is None:
+            # use the default camera (index 0). Earlier the code attempted to
+            # access camera 1 which may not exist on many systems and resulted
+            # in the identification process never starting.
             self.cap = cv2.VideoCapture(1)
             self.start_time = time.time()
             self.fail_count = 0
