@@ -241,6 +241,11 @@ class FaceRecognitionApp:
         self.last_zone_warning = 0
         self.last_fire_warning = 0
         self.last_overcrowd_log = 0
+        # Detection of abandoned items
+        self.person_absent_since = None
+        self.last_item_warning = 0
+        self.security_base_image_orig = None
+        self.security_base_image = None
         # Accumulators for security events
         self.face_mismatch_times = []  # timestamps of mismatched faces
         self.unauth_access_times = {}  # name -> list of timestamps
@@ -1167,6 +1172,25 @@ class FaceRecognitionApp:
                 boxes.append((x, y, x + w, y + h))
         return boxes
 
+    def _detect_abandoned_items(self, frame):
+        """Return bounding boxes for objects that differ from the base image."""
+        if self.security_base_image is None:
+            return []
+        diff = cv2.absdiff(frame, self.security_base_image)
+        gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 25, 255, cv2.THRESH_BINARY)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+        thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
+        cnts, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        boxes = []
+        floor_level = int(frame.shape[0] * 0.65)
+        for c in cnts:
+            if cv2.contourArea(c) > 1000:
+                x, y, w, h = cv2.boundingRect(c)
+                if y + h >= floor_level:
+                    boxes.append((x, y, x + w, y + h))
+        return boxes
+
     def _find_near_handle(self, x, y, radius=15):
         """Return (zone, index) of handle close to (x,y) or None."""
         if self.creating_poly:
@@ -1538,6 +1562,20 @@ class FaceRecognitionApp:
                             self.security_zones = resp.json()
                     except Exception:
                         self.security_zones = []
+                # load baseline image of environment
+                img_path = env.get('image', '')
+                self.security_base_image_orig = None
+                self.security_base_image = None
+                try:
+                    if img_path.startswith('http'):
+                        r = requests.get(img_path, timeout=5)
+                        r.raise_for_status()
+                        pil_img = Image.open(io.BytesIO(r.content)).convert('RGB')
+                        self.security_base_image_orig = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+                    elif img_path:
+                        self.security_base_image_orig = cv2.imread(img_path)
+                except Exception as e:
+                    logging.error(f'Не удалось загрузить базовое изображение: {e}')
             self.last_fire_warning = 0
             self._update_security_frame()
 
@@ -1571,6 +1609,11 @@ class FaceRecognitionApp:
         if w < 10 or h < 10:
             w, h = 600, 500
         frame = cv2.resize(frame, (w, h))
+        if self.security_base_image_orig is None:
+            self.security_base_image_orig = frame.copy()
+        if self.security_base_image is None or self.security_base_image.shape[:2] != (h, w):
+            if self.security_base_image_orig is not None:
+                self.security_base_image = cv2.resize(self.security_base_image_orig, (w, h))
         fire_boxes = self._detect_fire(frame)
         people_count = 0
         # Наложение зон из интерфейса руководителя и поиск людей
@@ -1680,6 +1723,22 @@ class FaceRecognitionApp:
                 env = next((e for e in self.environments if e.get('id') == self.security_env_id), {})
                 env_name = env.get('name', 'Неизвестное помещение')
                 self._send_log('WARNING', f'Превышено количество людей в {env_name}: разрешено {allowed}, обнаружено {people_count}')
+
+        if people_count == 0:
+            if self.person_absent_since is None:
+                self.person_absent_since = time.time()
+        else:
+            self.person_absent_since = None
+        abandoned_boxes = []
+        if self.person_absent_since is not None and time.time() - self.person_absent_since > 60:
+            abandoned_boxes = self._detect_abandoned_items(frame)
+            for x1, y1, x2, y2 in abandoned_boxes:
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+                cv2.putText(frame, 'ITEM', (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.6, (255, 0, 0), 2)
+            if abandoned_boxes and time.time() - self.last_item_warning > 5:
+                self.last_item_warning = time.time()
+                self._send_log('WARNING', 'Обнаружен забытый предмет')
         for x1, y1, x2, y2 in fire_boxes:
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), 2)
             cv2.putText(frame, 'FIRE', (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX,
